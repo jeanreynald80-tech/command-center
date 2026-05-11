@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Command Center — Reynald</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- ============================================================
+  FIREBASE CONFIG — PASTE YOUR VALUES HERE
+  1. Go to console.firebase.google.com
+  2. Create a new project
+  3. Add a Web App
+  4. Copy the firebaseConfig object values below
+  5. In Firestore, create a collection called "tasks"
+  6. In Authentication, enable Anonymous Auth (optional but recommended)
+============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",
+    authDomain:        "reynald-tracker.firebaseapp.com",
+    projectId:         "reynald-tracker",
+    storageBucket:     "reynald-tracker.firebasestorage.app",
+    messagingSenderId: "972889247459",
+    appId:             "1:972889247459:web:16544a2da93a1c81103fd6"
+  };
+
+  // ---- PIN CONFIG ----
+  const CORRECT_PIN = "1234"; // Change this to your PIN
+
+  // ---- CATEGORIES ----
+  const CATS = [
+    { id:'all',      label:'All tasks' },
+    { id:'bydate',   label:'📅 By due date' },
+    { id:'urgent',   label:'Urgent' },
+    { id:'vehicles', label:'Vehicles / logistics' },
+    { id:'nila',     label:'Nación Nila' },
+    { id:'florida',  label:'Florida move' },
+    { id:'property', label:'Property' },
+    { id:'legal',    label:'Legal / divorce' },
+    { id:'personal', label:'Personal' },
+    { id:'expenses', label:'\ud83e\udfe7 Florida expenses' },
+    { id:'lithonia', label:'\ud83c\udfe0 Lithonia expenses' },
+  ];
+
+  const TAG_META = {
+    urgent:  { label:'Urgent',  cls:'t-urgent' },
+    pending: { label:'Pending', cls:'t-pending' },
+    soon:    { label:'Pending', cls:'t-pending' },
+    shopping:{ label:'Pending', cls:'t-pending' },
+  };
+
+  // ---- SEED DATA ----
+  const SEED = [
+    { text:'Pick up Enterprise rental car', cat:'vehicles', tag:'urgent', date:'May 8', done:false },
+    { text:'Pick up U-Haul', cat:'vehicles', tag:'urgent', date:'May 9', done:false },
+    { text:'Check status of Mercedes-Benz repair', cat:'vehicles', tag:'pending', date:'', done:false },
+    { text:'Find out estimated completion date for Mercedes-Benz', cat:'vehicles', tag:'pending', date:'', done:false },
+    { text:'Follow up with Costa Rica agent on car insurance — Nissan Qashqai', cat:'vehicles', tag:'pending', date:'', done:false },
+    { text:'Fix pricing with Dr. Harris', cat:'nila', tag:'urgent', date:'', done:false },
+    { text:'Send updated pricing to Dr. Harris for confirmation', cat:'nila', tag:'pending', date:'', done:false },
+    { text:'Add another Nación Nila location / entity', cat:'nila', tag:'pending', date:'', done:false },
+    { text:'Add Uplon as a payment method', cat:'nila', tag:'pending', date:'', done:false },
+    { text:'Add Simpli to Jackie', cat:'nila', tag:'pending', date:'', done:false },
+    { text:'Get appraisal completed — Lithonia property', cat:'property', tag:'pending', date:'', done:false },
+    { text:'Buy inflatable bed', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Buy sheets, pillows, comforter', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Buy TV + TV stand', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Buy work desk and office chair', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Buy pots and pans', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Grocery shopping / market run', cat:'florida', tag:'pending', date:'', done:false },
+    { text:'Get supporting statements for McDonough property purchase (divorce)', cat:'legal', tag:'pending', date:'', done:false },
+    { text:'Get supporting statements for Costa Rica (divorce)', cat:'legal', tag:'pending', date:'', done:false },
+    { text:'Prepare cleaner version of expenses during separation', cat:'legal', tag:'pending', date:'', done:false },
+    { text:'Job interview — evaluate: keep May 11 or move to May 12?', cat:'personal', tag:'urgent', date:'May 11', done:false },
+  ];
+
+  // ---- STATE ----
+  let db, tasksCol, expensesCol, lithoniaCol;
+  let tasks = [];
+  let lithoniaExpenses = [];
+  let activeTab = 'all';
+  let editingId = null;
+  let currentExpView = "list";
+  let dashDateFilter = "";
+  let expSearchQuery = "";
+  let expMonthFilter = "";
+  let firebaseReady = false;
+
+  // ---- INIT ----
+  window.addEventListener('DOMContentLoaded', () => {
+    checkPin();
+  });
+
+  function checkPin() {
+    const unlocked = sessionStorage.getItem('rey_unlocked');
+    if (unlocked === 'yes') { initApp(); return; }
+    document.getElementById('pin-screen').style.display = 'flex';
+    document.getElementById('pin-input').focus();
+  }
+
+  window.submitPin = function() {
+    const val = document.getElementById('pin-input').value;
+    if (val === CORRECT_PIN) {
+      sessionStorage.setItem('rey_unlocked', 'yes');
+      document.getElementById('pin-screen').style.display = 'none';
+      initApp();
+    } else {
+      document.getElementById('pin-error').style.display = 'block';
+      document.getElementById('pin-input').value = '';
+      document.getElementById('pin-input').focus();
+    }
+  };
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('pin-screen').style.display !== 'none') {
+      window.submitPin();
+    }
+  });
+
+  async function initApp() {
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('loading').style.display = 'flex';
+
+    try {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      tasksCol = collection(db, 'tasks');
+      expensesCol = collection(db, 'expenses');
+      lithoniaCol = collection(db, 'lithonia');
+      firebaseReady = true;
+
+      // Check if collection is empty → seed it
+      const snap = await getDocs(tasksCol);
+      if (snap.empty) {
+        for (const t of SEED) {
+          await addDoc(tasksCol, { ...t, createdAt: Date.now() });
+        }
+      }
+
+      // Live listener — tasks
+      onSnapshot(tasksCol, snapshot => {
+        tasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        document.getElementById('loading').style.display = 'none';
+        render();
+      });
+
+      // One-time seed for Lithonia and Florida expenses if empty
+      const litSnap = await getDocs(lithoniaCol);
+      if (litSnap.empty) {
+        const lithoniaSeed = [
+          { date:'2026-04-19', store:'Mileage', item:'Smyrna → Lithonia', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:1 },
+          { date:'2026-04-19', store:'Mileage', item:'Lithonia → Smyrna', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:2 },
+          { date:'2026-04-23', store:'Mileage', item:'Smyrna → Lithonia', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:3 },
+          { date:'2026-04-23', store:'Mileage', item:'Lithonia → Smyrna', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:4 },
+          { date:'2026-05-01', store:'Mileage', item:'Atlanta Airport → Lithonia (morning)', amount:28, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:5 },
+          { date:'2026-05-01', store:'Mileage', item:'Lithonia → Smyrna (morning)', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:6 },
+          { date:'2026-05-01', store:'Mileage', item:'Smyrna → Lithonia (afternoon)', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:7 },
+          { date:'2026-05-01', store:'Mileage', item:'Lithonia → Smyrna (afternoon)', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:8 },
+          { date:'2026-04-01', store:'Gas Station', item:'Gas for Mercedes-Benz — back and forth trips', amount:69.77, category:'Transportation', card:'Truist Debit', location:'GA', addedAt:9 },
+          { date:'2026-04-01', store:'Airport Parking', item:'Airport parking', amount:40, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:10 },
+          { date:'2026-04-01', store:'DeKalb County', item:'Water bill (tenant never paid)', amount:837.55, category:'Home Supplies', card:'Truist Debit', location:'Lithonia, GA', addedAt:11 },
+          { date:'2026-05-01', store:'Home Depot', item:'Changing locks', amount:65.32, category:'Home Supplies', card:'Truist Debit', location:'Lithonia, GA', addedAt:12 },
+          { date:'2026-05-01', store:'HOA', item:'HOA fees — May 2026', amount:200, category:'Other', card:'Truist Debit', location:'Lithonia, GA', addedAt:13 },
+        ];
+        for (const e of lithoniaSeed) await addDoc(lithoniaCol, e);
+      }
+
+      // Add missing Florida expenses
+      const flSnap2 = await getDocs(expensesCol);
+      const existingFL = flSnap2.docs.map(d => d.data().item || '');
+      const floridaMissing = [
+        { date:'2026-04-29', store:'Frontier Airlines', item:'Flight ATL to FLL', amount:88.98, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:Date.now()+1 },
+        { date:'2026-05-01', store:'Frontier Airlines', item:'Flight FLL to ATL', amount:93.20, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+2 },
+        { date:'2026-04-29', store:'Nu Car Rental', item:'Rental car Apr 29 to May 1', amount:96.28, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+3 },
+        { date:'2026-04-29', store:'La Quinta Sunrise', item:'Hotel stay Sunrise FL', amount:202.32, category:'Hotel/Lodging', card:'Truist Debit', location:'Sunrise, FL', addedAt:Date.now()+4 },
+        { date:'2026-04-01', store:'ADT', item:'Home security alarm system', amount:298.31, category:'Home Supplies', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+5 },
+        { date:'2026-04-01', store:'Gas Station', item:'Gas for rental car', amount:20.18, category:'Transportation', card:'Truist Debit', location:'FL', addedAt:Date.now()+6 },
+        { date:'2026-05-01', store:'Uber', item:'Uber rental car return to airport', amount:9.94, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+7 },
+        { date:'2026-04-29', store:'Mileage', item:'FLL airport to Pembroke Pines home', amount:21, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+8 },
+        { date:'2026-04-29', store:'Mileage', item:'Pembroke Pines to Hotel La Quinta Sunrise', amount:21, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+9 },
+        { date:'2026-04-29', store:'Mileage', item:'Pembroke Pines to Home Depot Miramar', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+10 },
+        { date:'2026-04-29', store:'Mileage', item:'Home Depot Miramar to Pembroke Pines', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+11 },
+        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Walmart', amount:0.70, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+12 },
+        { date:'2026-04-30', store:'Mileage', item:'Walmart to Pembroke Pines home', amount:0.70, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+13 },
+        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Home Depot Miramar second trip', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+14 },
+        { date:'2026-04-30', store:'Mileage', item:'Home Depot Miramar to Pembroke Pines second trip', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+15 },
+        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Hotel La Quinta Sunrise second trip', amount:21, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+16 },
+        { date:'2026-04-01', store:'Home Depot', item:'New door locks front after return', amount:48.12, category:'Home Supplies', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+17 },
+        { date:'2026-04-01', store:'Walmart', item:'New locks garage door after return', amount:32.06, category:'Home Supplies', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+18 },
+        { date:'2026-04-01', store:'Silver Lakes HOA', item:'HOA Silver Lakes 2026 increase', amount:62, category:'Other', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+19 },
+        { date:'2026-04-01', store:'Tiffany Cove HOA', item:'HOA Tiffany Cove 2026 increase', amount:6, category:'Other', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+20 },
+      ];
+      for (const e of floridaMissing) {
+        if (!existingFL.some(i => i === e.item)) await addDoc(expensesCol, e);
+      }
+
+      // Live listener — lithonia
+      onSnapshot(lithoniaCol, snapshot => {
+        lithoniaExpenses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (activeTab === 'lithonia') renderExpenses('lithonia', currentExpView || 'list');
+      });
+
+      // Live listener — expenses
+      onSnapshot(expensesCol, snapshot => {
+        expenses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        localStorage.setItem('rey_exp_count', String(expenses.length));
+        if (activeTab === 'expenses') renderExpenses('florida', currentExpView || 'list');
+      });
+
+    } catch (err) {
+      console.warn('Firebase not configured, using local storage fallback.', err);
+      firebaseReady = false;
+      tasks = JSON.parse(localStorage.getItem('rey_tasks_v2') || 'null') || SEED.map((t,i) => ({...t, id: String(i+1)}));
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('firebase-banner').style.display = 'flex';
+      render();
+    }
+  }
+
+  function saveLocal() {
+    localStorage.setItem('rey_tasks_v2', JSON.stringify(tasks));
+  }
+
+  // ---- CRUD ----
+  window.toggleTask = async function(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    const newDone = !t.done;
+    if (firebaseReady) {
+      await updateDoc(doc(db, 'tasks', id), { done: newDone });
+    } else {
+      t.done = newDone; saveLocal(); render();
+    }
+  };
+
+  window.openModal = function(id) {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    editingId = id;
+    document.getElementById('modal-text').value = t.text;
+    document.getElementById('modal-cat').value = t.cat;
+    document.getElementById('modal-tag').value = t.tag || 'pending';
+    // Convert stored date to YYYY-MM-DD for date input
+  const pd = parseTaskDate(t.date || '');
+  document.getElementById('modal-date').value = pd ? new Date(pd.getTime() - pd.getTimezoneOffset()*60000).toISOString().split('T')[0] : '';
+    document.getElementById('modal-overlay').classList.add('open');
+  };
+
+  window.closeModal = function() {
+    document.getElementById('modal-overlay').classList.remove('open');
+    editingId = null;
+  };
+
+  window.markDoneFromModal = async function() {
+    if (!editingId) return;
+    if (firebaseReady) {
+      await updateDoc(doc(db, 'tasks', editingId), { done: true });
+    } else {
+      const t = tasks.find(x => x.id === editingId);
+      if (t) t.done = true;
+      saveLocal(); render();
+    }
+    closeModal();
+  };
+
+  window.saveTask = async function() {
+    const text = document.getElementById('modal-text').value.trim();
+    const cat  = document.getElementById('modal-cat').value;
+    const tag  = document.getElementById('modal-tag').value;
+    const rawDate = document.getElementById('modal-date').value;
+  let date = '';
+  if (rawDate) {
+    const [y,m,d] = rawDate.split('-');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    date = months[parseInt(m)-1] + ' ' + parseInt(d);
+  }
+    if (!text) return;
+    if (firebaseReady) {
+      await updateDoc(doc(db, 'tasks', editingId), { text, cat, tag, date });
+    } else {
+      const t = tasks.find(x => x.id === editingId);
+      if (t) { t.text = text; t.cat = cat; t.tag = tag; t.date = date; }
+      saveLocal(); render();
+    }
+    closeModal();
+  };
+
+  window.deleteTask = async function() {
+    if (!confirm('Delete this task?')) return;
+    if (firebaseReady) {
+      await deleteDoc(doc(db, 'tasks', editingId));
+    } else {
+      tasks = tasks.filter(x => x.id !== editingId);
+      saveLocal(); render();
+    }
+    closeModal();
+  };
+
+  window.openAddTaskModal = function() {
+    // Pre-select category based on active tab
+    const catSelect = document.getElementById('new-task-cat');
+    const validCats = ['vehicles','nila','florida','property','legal','personal'];
+    if (validCats.includes(activeTab)) catSelect.value = activeTab;
+    else catSelect.value = 'personal';
+    document.getElementById('new-task-text').value = '';
+    document.getElementById('new-task-tag').value = 'pending';
+    document.getElementById('new-task-date').value = '';
+    document.getElementById('add-task-modal').classList.add('open');
+    setTimeout(() => document.getElementById('new-task-text').focus(), 100);
+  };
+
+  window.closeAddTaskModal = function() {
+    document.getElementById('add-task-modal').classList.remove('open');
+  };
+
+  window.submitNewTask = async function() {
+    const text = document.getElementById('new-task-text').value.trim();
+    if (!text) return;
+    const cat = document.getElementById('new-task-cat').value;
+    const tag = document.getElementById('new-task-tag').value;
+    const rawDate = document.getElementById('new-task-date').value;
+    let date = '';
+    if (rawDate) {
+      const [y,m,d] = rawDate.split('-');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      date = months[parseInt(m)-1] + ' ' + parseInt(d);
+    }
+    const newTask = { text, cat, tag, date, done:false, createdAt: Date.now() };
+    if (firebaseReady) {
+      await addDoc(tasksCol, newTask);
+    } else {
+      tasks.push({ ...newTask, id: String(Date.now()) });
+      render();
+    }
+    closeAddTaskModal();
+  };
+
+  document.addEventListener('click', e => {
+    if (e.target.id === 'add-task-modal') closeAddTaskModal();
+  });
+
+  window.addTask = async function() {
+    const input = document.getElementById('new-task');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const cat = (activeTab === 'all' || activeTab === 'urgent') ? 'personal' : activeTab;
+    const newTask = { text, cat, tag:'pending', date:'', done:false, createdAt: Date.now() };
+    if (firebaseReady) {
+      await addDoc(tasksCol, newTask);
+    } else {
+      tasks.push({ ...newTask, id: String(Date.now()) });
+      saveLocal(); render();
+    }
+    input.value = '';
+  };
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement.id === 'new-task') window.addTask();
+  });
+
+  // ---- DRAWER ----
+  window.openDrawer = function() {
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawer-overlay').classList.add('open');
+  };
+  window.closeDrawer = function() {
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('drawer-overlay').classList.remove('open');
+  };
+  window.setTab = function(id) { activeTab = id; expSearchQuery = ''; expMonthFilter = ''; currentExpView = 'list'; closeDrawer(); render(); };
+
+  // ---- RENDER ----
+  const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+
+  function parseTaskDate(dateStr) {
+    if (!dateStr) return null;
+    const s = dateStr.trim();
+    // Handle M/D or M/D/YYYY format
+    const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+    if (slashMatch) {
+      const month = parseInt(slashMatch[1]) - 1;
+      const day = parseInt(slashMatch[2]);
+      const year = slashMatch[3] ? parseInt(slashMatch[3]) : new Date().getFullYear();
+      return new Date(year, month, day);
+    }
+    // Handle YYYY-MM-DD format
+    const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2])-1, parseInt(isoMatch[3]));
+    }
+    // Handle "May 11" or "May 11 2026" format
+    const parts = s.toLowerCase().split(/\s+/);
+    if (parts.length >= 2) {
+      const month = MONTHS[parts[0].substring(0,3)];
+      const day = parseInt(parts[1]);
+      if (month !== undefined && !isNaN(day)) {
+        const year = parts[2] ? parseInt(parts[2]) : new Date().getFullYear();
+        return new Date(year, month, day);
+      }
+    }
+    return null;
+  }
+
+  function getDateBucket(dateStr) {
+    const d = parseTaskDate(dateStr);
+    if (!d) return 'nodate';
+    const today = new Date(); today.setHours(0,0,0,0);
+    const diff = Math.floor((d - today) / 86400000);
+    if (diff < 0) return 'overdue';
+    if (diff === 0) return 'today';
+    if (diff <= 7) return 'thisweek';
+    return 'upcoming';
+  }
+
+  function countFor(catId) {
+    if (catId === 'all') return tasks.filter(t=>!t.done).length;
+    if (catId === 'urgent') return tasks.filter(t=>!t.done && t.tag==='urgent').length;
+    if (catId === 'bydate') return tasks.filter(t=>!t.done && t.date).length;
+    if (catId === 'expenses') return expenses.filter ? expenses.length : parseInt(localStorage.getItem('rey_exp_count') || '0');
+    if (catId === 'lithonia') return lithoniaExpenses ? lithoniaExpenses.length : 0;
+    return tasks.filter(t=>!t.done && t.cat===catId).length;
+  }
+
+  function renderByDate() {
+    const open = tasks.filter(t => !t.done);
+    const buckets = [
+      { id:'overdue',  label:'Overdue',   color:'#b91c1c', bg:'#fef2f2', border:'#fca5a5', dot:'&#128308;' },
+      { id:'today',    label:'Today',     color:'#92400e', bg:'#fffbeb', border:'#fcd34d', dot:'&#128309;' },
+      { id:'thisweek', label:'This week', color:'#1e40af', bg:'#eff6ff', border:'#93c5fd', dot:'&#128309;' },
+      { id:'upcoming', label:'Upcoming',  color:'#166534', bg:'#f0fdf4', border:'#86efac', dot:'&#128309;' },
+      { id:'nodate',   label:'No date',   color:'#6b6860', bg:'#f7f5f0', border:'#e4e2db', dot:'&#9898;' },
+    ];
+    let html = '';
+    buckets.forEach(b => {
+      const items = open.filter(t => getDateBucket(t.date) === b.id).sort((a,b) => { const da = parseTaskDate(a.date), db = parseTaskDate(b.date); if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db; });
+      if (!items.length) return;
+      html += `
+        <div class="date-bucket">
+          <div class="date-bucket-header" style="background:${b.bg};border-left:3px solid ${b.border};">
+            <span class="date-bucket-label" style="color:${b.color};font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${b.label}</span>
+            <span class="date-bucket-count" style="background:${b.border};color:${b.color};font-family:'DM Mono',monospace;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">${items.length}</span>
+          </div>
+          <div class="date-bucket-tasks" style="margin-bottom:20px;">
+            ${items.map(t => {
+              const tm = TAG_META[t.tag] || TAG_META.pending;
+              const catLabel = CATS.find(c=>c.id===t.cat)?.label || t.cat;
+              return `<div class="task-row" onclick="openModal('${t.id}')">
+                <div class="check${t.done?' checked':''}" onclick="event.stopPropagation();toggleTask('${t.id}')"></div>
+                <div class="task-body">
+                  <div class="task-text">${t.text}</div>
+                  <div class="task-meta">
+                    <span class="tag ${tm.cls}">${tm.label}</span>
+                    <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#f0ede8;color:#888;font-weight:500;">${catLabel}</span>
+                    ${t.date ? `<span class="task-date">${t.date}</span>` : ''}
+                  </div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+    });
+    if (!html) html = '<div class="empty">No tasks with dates yet — tap any task to add a due date.</div>';
+    document.getElementById('task-area').innerHTML = html;
+  }
+
+  function render() {
+    const urgent = tasks.filter(t=>!t.done&&t.tag==='urgent').length;
+    const open   = tasks.filter(t=>!t.done).length;
+    const done   = tasks.filter(t=>t.done).length;
+    document.getElementById('s-urgent').textContent = urgent;
+    document.getElementById('s-open').textContent   = open;
+    document.getElementById('s-done').textContent   = done;
+
+    const now = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    document.getElementById('updated-top').textContent = now;
+
+    const TASK_CATS = ['all','bydate','urgent','vehicles','nila','florida','property','legal','personal'];
+    const EXP_CATS = ['expenses','lithonia'];
+    const renderNavGroup = (ids) => ids.map(id => {
+      const cat = CATS.find(x => x.id === id); if (!cat) return '';
+      return '<div class="sidebar-item' + (activeTab===id?' active':'') + '" onclick="setTab(\'' + id + '\')">' +
+             '<span>' + cat.label + '</span><span class="sidebar-count">' + countFor(id) + '</span></div>';
+    }).join('');
+    const navHTML = '<div class="sidebar-group-label">Tasks</div>' + renderNavGroup(TASK_CATS) +
+                    '<div class="sidebar-group-label" style="margin-top:16px;">Expenses</div>' + renderNavGroup(EXP_CATS);
+    document.getElementById('sidebar').innerHTML = navHTML;
+    document.getElementById('drawer-nav').innerHTML = navHTML;
+
+    if (activeTab === 'bydate') { renderByDate(); return; }
+    const addBar = document.getElementById('add-task-bar');
+    if (activeTab === 'expenses') {
+      renderExpenses('florida', currentExpView || 'list');
+      if (addBar) addBar.style.display = 'none';
+      return;
+    }
+    if (activeTab === 'lithonia') {
+      renderExpenses('lithonia', currentExpView || 'list');
+      if (addBar) addBar.style.display = 'none';
+      return;
+    }
+    if (addBar) addBar.style.display = 'block';
+
+    // Dashboard date picker (all tasks view only)
+    if (activeTab === 'all') {
+      const pickerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+        <div style="font-family:'DM Mono',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;">Filter by date</div>
+        <input type="date" id="dash-date-picker" value="${dashDateFilter}"
+          onchange="dashDateFilter=this.value;render()"
+          style="font-family:'DM Sans',sans-serif;font-size:13px;color:#1a1917;background:#fff;border:1px solid #e4e2db;border-radius:7px;padding:7px 12px;outline:none;cursor:pointer;">
+        ${dashDateFilter ? `<button onclick="dashDateFilter='';render()" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;cursor:pointer;">✕ Clear</button>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:#888;">Showing tasks due ${new Date(dashDateFilter+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</span>` : ''}
+      </div>`;
+      const existingPicker = document.getElementById('dash-date-picker-wrap');
+      if (!existingPicker) {
+        const wrap = document.createElement('div');
+        wrap.id = 'dash-date-picker-wrap';
+        wrap.innerHTML = pickerHTML;
+        const taskArea = document.getElementById('task-area');
+        taskArea.parentNode.insertBefore(wrap, taskArea);
+      } else {
+        existingPicker.innerHTML = pickerHTML;
+      }
+    } else {
+      const picker = document.getElementById('dash-date-picker-wrap');
+      if (picker) picker.remove();
+    }
+
+    let filtered = activeTab === 'all' ? tasks :
+      activeTab === 'urgent' ? tasks.filter(t => t.tag === 'urgent') :
+      tasks.filter(t => t.cat === activeTab);
+
+    // Apply dashboard date filter
+    if (activeTab === 'all' && dashDateFilter) {
+      filtered = filtered.filter(t => {
+        if (!t.date) return false;
+        const td = parseTaskDate(t.date);
+        if (!td) return false;
+        const fd = new Date(dashDateFilter + 'T12:00:00');
+        return td.getFullYear()===fd.getFullYear() && td.getMonth()===fd.getMonth() && td.getDate()===fd.getDate();
+      });
+    }
+    const openTasks = filtered.filter(t => !t.done);
+    const doneTasks = filtered.filter(t => t.done);
+
+    let html = '';
+    if (openTasks.length === 0 && doneTasks.length === 0) {
+      html = '<div class="empty">Nothing here yet — add a task below.</div>';
+    } else {
+      html += renderTasksByDateCategory(openTasks, doneTasks);
+    }
+    document.getElementById('task-area').innerHTML = html;
+  }
+
+  function renderTasksByDateCategory(openTasks, doneTasks) {
+    const DATE_BUCKETS = [
+      { id:'overdue',  label:'Overdue',   color:'#b91c1c', bg:'#fef2f2', border:'#fca5a5' },
+      { id:'today',    label:'Today',     color:'#92400e', bg:'#fffbeb', border:'#fcd34d' },
+      { id:'thisweek', label:'This week', color:'#1e40af', bg:'#eff6ff', border:'#93c5fd' },
+      { id:'upcoming', label:'Upcoming',  color:'#166534', bg:'#f0fdf4', border:'#86efac' },
+      { id:'nodate',   label:'No date',   color:'#6b6860', bg:'#f7f5f0', border:'#e4e2db' },
+    ];
+    const CAT_LABELS = {
+      vehicles:'Vehicles / logistics', nila:'Nación Nila', florida:'Florida move',
+      property:'Property', legal:'Legal / divorce', personal:'Personal'
+    };
+
+    let html = '';
+
+    DATE_BUCKETS.forEach(bucket => {
+      const bucketTasks = openTasks.filter(t => getDateBucket(t.date) === bucket.id);
+      if (!bucketTasks.length) return;
+
+      // Group by category
+      const byCat = {};
+      bucketTasks.forEach(t => {
+        const cat = t.cat || 'personal';
+        if (!byCat[cat]) byCat[cat] = [];
+        byCat[cat].push(t);
+      });
+
+      let catHTML = '';
+      Object.entries(byCat).forEach(([cat, catTasks]) => {
+        const catLabel = CAT_LABELS[cat] || cat;
+        catHTML += `<div style="margin-bottom:14px;">
+          <div class="cat-hdr">
+            <span class="cat-hdr-label">${catLabel}</span>
+            <span class="cat-hdr-count">${catTasks.length}</span>
+          </div>
+          ${catTasks.map(t => taskHTML(t)).join('')}
+        </div>`;
+      });
+
+      html += `<div style="margin-bottom:24px;">
+        <div style="background:${bucket.bg};border-left:3px solid ${bucket.border};border-radius:2px 2px 0 0;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+          <span style="font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:${bucket.color};">${bucket.label}</span>
+          <span style="background:${bucket.border};color:${bucket.color};font-family:'DM Mono',monospace;font-size:10px;padding:2px 10px;border-radius:20px;font-weight:600;">${bucketTasks.length} task${bucketTasks.length!==1?'s':''}</span>
+        </div>
+        <div style="padding:4px 0 0 0;">${catHTML}</div>
+      </div>`;
+    });
+
+    // Completed section — flat list at bottom
+    if (doneTasks.length) {
+      html += `<div class="section">
+        <div class="section-header">
+          <div class="section-title">Completed</div>
+          <div class="section-line"></div>
+          <div class="section-count">${doneTasks.length}</div>
+        </div>
+        ${doneTasks.map(t => taskHTML(t)).join('')}
+      </div>`;
+    }
+
+    return html || '<div class="empty">Nothing here yet.</div>';
+  }
+
+  function section(title, items) {
+    return `<div class="section">
+      <div class="section-header">
+        <div class="section-title">${title}</div>
+        <div class="section-line"></div>
+        <div class="section-count">${items.length}</div>
+      </div>
+      ${items.map(taskHTML).join('')}
+    </div>`;
+  }
+
+  function taskHTML(t) {
+    const tm = TAG_META[t.tag] || TAG_META.pending;
+    return `<div class="task-row${t.done?' done-row':''}" onclick="openModal('${t.id}')">
+      <div class="check${t.done?' checked':''}" onclick="event.stopPropagation();toggleTask('${t.id}')"></div>
+      <div class="task-body">
+        <div class="task-text${t.done?' struck':''}">${t.text}</div>
+        <div class="task-meta">
+          ${!t.done ? `<span class="tag ${tm.cls}">${tm.label}</span>` : ''}
+          ${t.date ? `<span class="task-date">${t.date}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // close modal on overlay click
+  document.addEventListener('click', e => {
+    if (e.target.id === 'modal-overlay') window.closeModal();
+  });
+
+
+  // ---- EXPENSES ----
+  let expenses = JSON.parse(localStorage.getItem('rey_expenses') || '[]');
+
+  function saveExpenses() {
+    // local fallback only — Firestore is the source of truth when connected
+    localStorage.setItem('rey_expenses', JSON.stringify(expenses));
+    localStorage.setItem('rey_exp_count', String(expenses.length));
+  }
+
+  function renderExpenses(section='florida', view='list') {
+    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
+    const sectionLabel = section === 'lithonia' ? 'Lithonia' : 'Florida';
+    const filteredData = data.filter(e => {
+      // Text search
+      if (expSearchQuery) {
+        const q = expSearchQuery.toLowerCase();
+        const matchesText = (e.store||'').toLowerCase().includes(q)
+          || (e.item||'').toLowerCase().includes(q)
+          || (e.category||'').toLowerCase().includes(q)
+          || (e.location||'').toLowerCase().includes(q)
+          || (e.card||'').toLowerCase().includes(q);
+        if (!matchesText) return false;
+      }
+      // Month filter
+      if (expMonthFilter && e.date) {
+        const [fy, fm] = expMonthFilter.split('-');
+        const [ey, em] = (e.date || '').split('-');
+        if (ey !== fy || em !== fm) return false;
+      }
+      return true;
+    });
+    const total = filteredData.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    const cards = ['Truist Debit','American Express','Chase Mastercard','Other'];
+    const cats = ['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
+
+    // Group by category
+    const byCat = {};
+    data.forEach(e => {
+      const cat = e.category || 'Other';
+      if (!byCat[cat]) byCat[cat] = [];
+      byCat[cat].push(e);
+    });
+    const catTotals = Object.entries(byCat).sort((a,b) => b[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0) - a[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0));
+
+    const expCardHTML = (e) => `<div class="exp-card" onclick="openExpenseModal('${e.id}','${section}')" style="cursor:pointer;">
+              <div class="exp-card-top">
+                <div>
+                  <div class="exp-store">${e.store || 'Unknown'}</div>
+                  <div class="exp-item">${e.item || ''}</div>
+                </div>
+                <div class="exp-amount">$${parseFloat(e.amount || 0).toFixed(2)}</div>
+              </div>
+              <div class="exp-card-meta">
+                ${e.card ? `<span class="exp-pill" style="background:#faf8f3;border:1px solid #c9b882;color:#92400e;">💳 ${e.card}</span>` : ''}
+                ${e.category ? `<span class="exp-pill">${e.category}</span>` : ''}
+                ${e.location ? `<span class="exp-pill">📍 ${e.location}</span>` : ''}
+                ${e.date ? `<span class="exp-pill">📅 ${new Date(e.date + 'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
+                <button class="exp-del" onclick="event.stopPropagation();deleteExpense('${e.id}')">✕</button>
+              </div>
+            </div>`;
+
+    const listView = filteredData.length === 0
+      ? '<div class="empty">No expenses match your search.</div>'
+      : [...filteredData].sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).map(expCardHTML).join('');
+
+    // Group filteredData by category
+    const byCatF = {};
+    filteredData.forEach(e => { const cat = e.category || 'Other'; if (!byCatF[cat]) byCatF[cat] = []; byCatF[cat].push(e); });
+    const catTotalsF = Object.entries(byCatF).sort((a,b) => b[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0) - a[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0));
+    const catView = catTotalsF.length === 0
+      ? '<div class="empty">No expenses match your search.</div>'
+      : catTotalsF.map(([cat, items]) => {
+          const catTotal = items.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+          return `<div class="date-bucket">
+            <div class="date-bucket-header" style="background:#f7f5f0;border-left:3px solid #c9b882;">
+              <span style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#1a1917;">${cat}</span>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-family:'DM Mono',monospace;font-size:11px;color:#888;">${items.length} item${items.length!==1?'s':''}</span>
+                <span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#166534;">$${catTotal.toFixed(2)}</span>
+              </div>
+            </div>
+            <div class="date-bucket-tasks">${[...items].sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).map(expCardHTML).join('')}</div>
+          </div>`;
+        }).join('');
+
+    const html = `
+      <div class="exp-header">
+        <div>
+          <div class="exp-total-label">Total spent</div>
+          <div class="exp-total">$${total.toFixed(2)}</div>
+          <div style="font-size:11px;color:#aaa;font-family:'DM Mono',monospace;margin-top:2px;">${filteredData.length} expense${filteredData.length !== 1 ? 's' : ''}${expSearchQuery ? ' (filtered)' : ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+          <div style="display:flex;gap:6px;">
+            <button onclick="currentExpView='list';renderExpenses('${section}','list')" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #e4e2db;background:${view==='list'?'var(--ink)':'transparent'};color:${view==='list'?'var(--gold)':'var(--text3)'};cursor:pointer;">List</button>
+            <button onclick="currentExpView='category';renderExpenses('${section}','category')" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #e4e2db;background:${view==='category'?'var(--ink)':'transparent'};color:${view==='category'?'var(--gold)':'var(--text3)'};cursor:pointer;">By category</button>
+          </div>
+          <div style='display:flex;gap:8px;flex-wrap:wrap;'>
+            <button class="exp-scan-btn" onclick="toggleAddForm()">+ Add expense</button>
+            <button class="exp-scan-btn" style="background:#2a6041;" onclick="exportToExcel('${section}')">&#8595; Export Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="exp-add-form" style="display:none;background:#f7f5f0;border:1px solid #e4e2db;border-radius:10px;padding:18px;margin-bottom:20px;">
+        <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#999;margin-bottom:14px;">New expense</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Store / Vendor</label>
+            <input id="exp-store" class="modal-input" placeholder="e.g. Walmart" style="width:100%;">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Amount ($)</label>
+            <input id="exp-amount" class="modal-input" type="number" step="0.01" placeholder="0.00" style="width:100%;">
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Item / Description</label>
+          <input id="exp-item" class="modal-input" placeholder="What did you buy?" style="width:100%;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Payment card</label>
+          <select id="exp-card" class="modal-input" style="width:100%;">
+            ${cards.map(card => `<option>${card}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Category</label>
+            <select id="exp-cat" class="modal-input" style="width:100%;">
+              ${cats.map(cat => `<option>${cat}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Date</label>
+            <input id="exp-date" class="modal-input" type="date" style="width:100%;" value="${new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]}">
+          </div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Location (optional)</label>
+          <input id="exp-location" class="modal-input" placeholder="e.g. Hollywood, FL" style="width:100%;">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="toggleAddForm()" style="font-family:'DM Sans',sans-serif;font-size:13px;padding:9px 16px;border-radius:7px;border:1px solid #e4e2db;background:transparent;color:#888;cursor:pointer;">Cancel</button>
+          <button onclick="saveExpenseManual()" style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:9px 20px;border-radius:7px;border:none;background:#1a1917;color:#c9b882;cursor:pointer;">Save</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+        <input
+          id="exp-search"
+          type="text"
+          placeholder="Search store, item, category..."
+          value="${expSearchQuery}"
+          oninput="expSearchQuery=this.value;renderExpenses('${section}','${view}')"
+          style="flex:1;min-width:160px;font-family:'Montserrat',sans-serif;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:1px;padding:9px 14px;outline:none;box-sizing:border-box;"
+        >
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);white-space:nowrap;">Month</span>
+          <input
+            id="exp-month"
+            type="month"
+            value="${expMonthFilter}"
+            onchange="expMonthFilter=this.value;renderExpenses('${section}','${view}')"
+            style="font-family:'Montserrat',sans-serif;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:1px;padding:9px 12px;outline:none;cursor:pointer;"
+          >
+          ${expMonthFilter || expSearchQuery ? `<button onclick="expMonthFilter='';expSearchQuery='';renderExpenses('${section}','${view}')" style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:9px 14px;border-radius:1px;border:1px solid #e8c0c0;background:#fdf0f0;color:var(--red);cursor:pointer;white-space:nowrap;">✕ Clear</button>` : ''}
+        </div>
+      </div>
+      ${(expSearchQuery || expMonthFilter) ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-bottom:12px;letter-spacing:0.03em;">
+        ${filteredData.length} result${filteredData.length!==1?'s':''} · 
+        <strong style="color:var(--green);">$${filteredData.reduce((s,e)=>s+(parseFloat(e.amount)||0),0).toFixed(2)}</strong> total
+        ${expMonthFilter ? '· ' + new Date(expMonthFilter+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'}) : ''}
+      </div>` : ''}
+      <div class="exp-list">
+        ${view === 'category' ? catView : listView}
+      </div>`;
+    document.getElementById('task-area').innerHTML = html;
+  }
+
+  
+  window.exportToExcel = function(section) {
+    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
+    const label = section === 'lithonia' ? 'Lithonia' : 'Florida';
+    if (!data.length) { alert('No expenses to export.'); return; }
+    const headers = ['Date','Store / Vendor','Item / Description','Amount','Category','Payment Card','Location'];
+    const rows = [...data].sort((a,b)=>(a.addedAt||0)-(b.addedAt||0)).map(e => [
+      e.date || '', e.store || '', e.item || '',
+      parseFloat(e.amount || 0).toFixed(2),
+      e.category || '', e.card || '', e.location || ''
+    ]);
+    const total = data.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
+    rows.push(['','','TOTAL', total.toFixed(2),'','','']);
+    const csv = [headers, ...rows].map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = label + '_Expenses_' + new Date().toISOString().split('T')[0] + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window.toggleAddForm = function() {
+    const f = document.getElementById('exp-add-form');
+    if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window.saveExpenseManual = async function() {
+    const store = document.getElementById('exp-store').value.trim();
+    const amount = document.getElementById('exp-amount').value;
+    const item = document.getElementById('exp-item').value.trim();
+    const category = document.getElementById('exp-cat').value;
+    const date = document.getElementById('exp-date').value;
+    const location = document.getElementById('exp-location').value.trim();
+    if (!store && !amount) return;
+    const card = document.getElementById('exp-card').value;
+    const newExp = { store, amount: parseFloat(amount) || 0, item, category, card, date, location, addedAt: Date.now(), section: activeTab };
+    const col = activeTab === 'lithonia' ? lithoniaCol : expensesCol;
+    if (firebaseReady) {
+      await addDoc(col, newExp);
+    } else {
+      expenses.push(newExp);
+      saveExpenses();
+      renderExpenses();
+    }
+    toggleAddForm();
+  };
+
+  window.deleteExpense = async function(id) {
+    if (!confirm('Delete this expense?')) return;
+    if (firebaseReady && id) {
+      await deleteDoc(doc(db, 'expenses', id));
+    } else {
+      expenses = expenses.filter(e => e.id !== id && e.addedAt !== id);
+      saveExpenses();
+      renderExpenses();
+    }
+  };
+
+
+
+  // ---- EXPENSE EDIT MODAL ----
+  let editingExpId = null;
+  let editingExpSection = 'florida';
+
+  window.openExpenseModal = function(id, section) {
+    editingExpId = id;
+    editingExpSection = section;
+    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
+    const e = data.find(x => x.id === id);
+    if (!e) return;
+    document.getElementById('emod-store').value = e.store || '';
+    document.getElementById('emod-item').value = e.item || '';
+    document.getElementById('emod-amount').value = e.amount || '';
+    document.getElementById('emod-card').value = e.card || 'Truist Debit';
+    document.getElementById('emod-cat').value = e.category || 'Other';
+    document.getElementById('emod-date').value = e.date || '';
+    document.getElementById('emod-location').value = e.location || '';
+    document.getElementById('exp-modal-overlay').classList.add('open');
+  };
+
+  window.closeExpenseModal = function() {
+    document.getElementById('exp-modal-overlay').classList.remove('open');
+    editingExpId = null;
+  };
+
+  window.saveExpenseFromModal = async function() {
+    const col = editingExpSection === 'lithonia' ? lithoniaCol : expensesCol;
+    const updates = {
+      store: document.getElementById('emod-store').value.trim(),
+      item: document.getElementById('emod-item').value.trim(),
+      amount: parseFloat(document.getElementById('emod-amount').value) || 0,
+      card: document.getElementById('emod-card').value,
+      category: document.getElementById('emod-cat').value,
+      date: document.getElementById('emod-date').value,
+      location: document.getElementById('emod-location').value.trim(),
+    };
+    if (firebaseReady) {
+      await updateDoc(doc(db, editingExpSection === 'lithonia' ? 'lithonia' : 'expenses', editingExpId), updates);
+      // Firestore listener will re-render automatically
+    } else {
+      const data = editingExpSection === 'lithonia' ? lithoniaExpenses : expenses;
+      const e = data.find(x => x.id === editingExpId);
+      if (e) Object.assign(e, updates);
+      renderExpenses(editingExpSection, currentExpView || 'list');
+    }
+    closeExpenseModal();
+  };
+
+  window.deleteExpenseFromModal = async function() {
+    if (!confirm('Delete this expense?')) return;
+    const colName = editingExpSection === 'lithonia' ? 'lithonia' : 'expenses';
+    if (firebaseReady) {
+      await deleteDoc(doc(db, colName, editingExpId));
+    } else {
+      if (editingExpSection === 'lithonia') {
+        lithoniaExpenses = lithoniaExpenses.filter(x => x.id !== editingExpId);
+      } else {
+        expenses = expenses.filter(x => x.id !== editingExpId);
+      }
+      renderExpenses(editingExpSection);
+    }
+    closeExpenseModal();
+  };
+
+  document.addEventListener('click', e => {
+    if (e.target.id === 'exp-modal-overlay') window.closeExpenseModal();
+  });
+
+
+
+</script>
+
+<style>
+/* Additional inline styles if needed */
+</style>
+</head>
+<body>
+
+<!-- PIN SCREEN -->
+<div id="pin-screen">
+  <div class="pin-box">
+    <div class="pin-logo">Command Center</div>
+    <div class="pin-subtitle">Personal Operations</div>
+    <div class="pin-label">Enter your PIN</div>
+    <input type="password" id="pin-input" maxlength="8" inputmode="numeric" placeholder="••••" />
+    <button class="pin-btn" onclick="submitPin()">Unlock</button>
+    <div id="pin-error">Incorrect PIN. Try again.</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">Connecting...</div>
+  </div>
+
+  <div id="firebase-banner">
+    ⚠️ Running in offline mode — changes saved on this device only.
+  </div>
+
+  <!-- DRAWER -->
+  <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">Navigation</span>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div id="drawer-nav"></div>
+  </div>
+
+  <!-- TASK EDIT MODAL -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Edit task</div>
+      <div class="modal-field">
+        <label class="modal-label">Task</label>
+        <textarea class="modal-input" id="modal-text" rows="3" style="resize:none;"></textarea>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Category</label>
+        <select class="modal-input" id="modal-cat">
+          <option value="vehicles">Vehicles / logistics</option>
+          <option value="nila">Nación Nila</option>
+          <option value="florida">Florida move</option>
+          <option value="property">Property</option>
+          <option value="legal">Legal / divorce</option>
+          <option value="personal">Personal</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Priority</label>
+        <select class="modal-input" id="modal-tag">
+          <option value="urgent">Urgent</option>
+          <option value="pending">Pending</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Due date</label>
+        <input class="modal-input" id="modal-date" type="date" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-delete" onclick="deleteTask()">Delete</button>
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-save" onclick="saveTask()">Save</button>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <button onclick="markDoneFromModal()" style="width:100%;font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:11px;border-radius:1px;border:1.5px solid #a0c8a8;background:var(--green-bg);color:var(--green);cursor:pointer;">✓ Mark as complete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD TASK MODAL -->
+  <div class="modal-overlay" id="add-task-modal">
+    <div class="modal">
+      <div class="modal-title">New task</div>
+      <div class="modal-field">
+        <label class="modal-label">Task description</label>
+        <textarea class="modal-input" id="new-task-text" rows="3" style="resize:none;" placeholder="What needs to be done?"></textarea>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Category</label>
+        <select class="modal-input" id="new-task-cat">
+          <option value="personal">Personal</option>
+          <option value="vehicles">Vehicles / logistics</option>
+          <option value="nila">Nación Nila</option>
+          <option value="florida">Florida move</option>
+          <option value="property">Property</option>
+          <option value="legal">Legal / divorce</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Priority</label>
+        <select class="modal-input" id="new-task-tag">
+          <option value="pending">Pending</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Due date (optional)</label>
+        <input class="modal-input" id="new-task-date" type="date" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeAddTaskModal()">Cancel</button>
+        <button class="btn-save" onclick="submitNewTask()">Add task</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXPENSE EDIT MODAL -->
+  <div class="modal-overlay" id="exp-modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Edit expense</div>
+      <div class="modal-field">
+        <label class="modal-label">Store / Vendor</label>
+        <input class="modal-input" id="emod-store" type="text">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Item / Description</label>
+        <input class="modal-input" id="emod-item" type="text">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Amount ($)</label>
+        <input class="modal-input" id="emod-amount" type="number" step="0.01">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Payment card</label>
+        <select class="modal-input" id="emod-card">
+          <option>Truist Debit</option>
+          <option>American Express</option>
+          <option>Chase Mastercard</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Category</label>
+        <select class="modal-input" id="emod-cat">
+          <option>Furniture</option><option>Electronics</option>
+          <option>Food & Grocery</option><option>Transportation</option>
+          <option>Home Supplies</option><option>Clothing</option>
+          <option>Gas</option><option>Hotel/Lodging</option><option>Other</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Date</label>
+        <input class="modal-input" id="emod-date" type="date">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Location</label>
+        <input class="modal-input" id="emod-location" type="text">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-delete" onclick="deleteExpenseFromModal()">Delete</button>
+        <button class="btn-cancel" onclick="closeExpenseModal()">Cancel</button>
+        <button class="btn-save" onclick="saveExpenseFromModal()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOP BAR -->
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <button class="hamburger" onclick="openDrawer()">☰</button>
+      <span class="app-title">Command Center</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="top-meta" id="updated-top"></span>
+      <button onclick="lockApp()" style="background:none;border:1px solid rgba(184,151,106,0.3);border-radius:1px;color:var(--gold);font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:6px 14px;cursor:pointer;">🔒 Lock</button>
+    </div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="summary-bar">
+    <div class="stat">
+      <div class="stat-num red" id="s-urgent">—</div>
+      <div class="stat-label">Urgent</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat">
+      <div class="stat-num amber" id="s-open">—</div>
+      <div class="stat-label">Open</div>
+    </div>
+    <div class="divider"></div>
+    <div class="stat">
+      <div class="stat-num green" id="s-done">—</div>
+      <div class="stat-label">Done</div>
+    </div>
+  </div>
+
+  <!-- LAYOUT -->
+  <div class="layout">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <!-- ADD TASK BUTTON -->
+      <div id="add-task-bar" style="margin-bottom:24px;">
+        <button onclick="openAddTaskModal()" style="display:flex;align-items:center;gap:10px;width:100%;padding:14px 18px;background:#fff;border:1px solid var(--border);border-radius:2px;cursor:pointer;text-align:left;transition:border-color 0.15s,box-shadow 0.15s;box-shadow:0 2px 12px rgba(0,0,0,0.04);" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="width:28px;height:28px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="color:var(--gold);font-size:16px;line-height:1;margin-top:-1px;">+</span>
+          </span>
+          <span style="font-family:'Montserrat',sans-serif;font-size:12px;font-weight:500;letter-spacing:0.04em;color:var(--text3);">Add a new task...</span>
+        </button>
+      </div>
+      <div id="task-area"></div>
+    </div>
+  </div>
+
+</div><!-- end #app -->
+
+</body>
+</html>
