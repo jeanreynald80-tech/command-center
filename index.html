@@ -4,1182 +4,892 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Command Center — Reynald</title>
-<link rel="preconnect" href="https://fonts.bunny.net">
 <link href="https://fonts.bunny.net/css?family=cormorant-garamond:300,400,500,600|montserrat:300,400,500,600,700|dm-mono:400,500" rel="stylesheet">
-
-<!-- ============================================================
-  FIREBASE CONFIG — PASTE YOUR VALUES HERE
-  1. Go to console.firebase.google.com
-  2. Create a new project
-  3. Add a Web App
-  4. Copy the firebaseConfig object values below
-  5. In Firestore, create a collection called "tasks"
-  6. In Authentication, enable Anonymous Auth (optional but recommended)
-============================================================ -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-  const firebaseConfig = {
-    apiKey:            "AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",
-    authDomain:        "reynald-tracker.firebaseapp.com",
-    projectId:         "reynald-tracker",
-    storageBucket:     "reynald-tracker.firebasestorage.app",
-    messagingSenderId: "972889247459",
-    appId:             "1:972889247459:web:16544a2da93a1c81103fd6"
-  };
-
-  // ---- PIN CONFIG ----
-  const CORRECT_PIN = "1234"; // Change this to your PIN
-
-  // ---- CATEGORIES ----
-  const CATS = [
-    { id:'all',      label:'All tasks' },
-    { id:'bydate',   label:'📅 By due date' },
-    { id:'urgent',   label:'Urgent' },
-    { id:'vehicles', label:'Vehicles / logistics' },
-    { id:'nila',     label:'Nación Nila' },
-    { id:'florida',  label:'Florida move' },
-    { id:'property', label:'Property' },
-    { id:'legal',    label:'Legal / divorce' },
-    { id:'personal', label:'Personal' },
-    { id:'expenses', label:'\ud83e\udfe7 Florida expenses' },
-    { id:'lithonia', label:'\ud83c\udfe0 Lithonia expenses' },
-  ];
-
-  const TAG_META = {
-    urgent:  { label:'Urgent',  cls:'t-urgent' },
-    pending: { label:'Pending', cls:'t-pending' },
-    soon:    { label:'Pending', cls:'t-pending' },
-    shopping:{ label:'Pending', cls:'t-pending' },
-  };
-
-  // ---- SEED DATA ----
-  const SEED = [
-    { text:'Pick up Enterprise rental car', cat:'vehicles', tag:'urgent', date:'May 8', done:false },
-    { text:'Pick up U-Haul', cat:'vehicles', tag:'urgent', date:'May 9', done:false },
-    { text:'Check status of Mercedes-Benz repair', cat:'vehicles', tag:'pending', date:'', done:false },
-    { text:'Find out estimated completion date for Mercedes-Benz', cat:'vehicles', tag:'pending', date:'', done:false },
-    { text:'Follow up with Costa Rica agent on car insurance — Nissan Qashqai', cat:'vehicles', tag:'pending', date:'', done:false },
-    { text:'Fix pricing with Dr. Harris', cat:'nila', tag:'urgent', date:'', done:false },
-    { text:'Send updated pricing to Dr. Harris for confirmation', cat:'nila', tag:'pending', date:'', done:false },
-    { text:'Add another Nación Nila location / entity', cat:'nila', tag:'pending', date:'', done:false },
-    { text:'Add Uplon as a payment method', cat:'nila', tag:'pending', date:'', done:false },
-    { text:'Add Simpli to Jackie', cat:'nila', tag:'pending', date:'', done:false },
-    { text:'Get appraisal completed — Lithonia property', cat:'property', tag:'pending', date:'', done:false },
-    { text:'Buy inflatable bed', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Buy sheets, pillows, comforter', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Buy TV + TV stand', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Buy work desk and office chair', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Buy pots and pans', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Grocery shopping / market run', cat:'florida', tag:'pending', date:'', done:false },
-    { text:'Get supporting statements for McDonough property purchase (divorce)', cat:'legal', tag:'pending', date:'', done:false },
-    { text:'Get supporting statements for Costa Rica (divorce)', cat:'legal', tag:'pending', date:'', done:false },
-    { text:'Prepare cleaner version of expenses during separation', cat:'legal', tag:'pending', date:'', done:false },
-    { text:'Job interview — evaluate: keep May 11 or move to May 12?', cat:'personal', tag:'urgent', date:'May 11', done:false },
-  ];
-
-  // ---- STATE ----
-  let db, tasksCol, expensesCol, lithoniaCol;
-  let tasks = [];
-  let lithoniaExpenses = [];
-  let activeTab = 'all';
-  let editingId = null;
-  let currentExpView = "list";
-  let dashDateFilter = "";
-  let expSearchQuery = "";
-  let expMonthFilter = "";
-  let firebaseReady = false;
-
-  // ---- INIT ----
-  window.addEventListener('DOMContentLoaded', () => {
-    checkPin();
-  });
-
-  function checkPin() {
-    const unlocked = sessionStorage.getItem('rey_unlocked');
-    if (unlocked === 'yes') { initApp(); return; }
-    document.getElementById('pin-screen').style.display = 'flex';
-    document.getElementById('pin-input').focus();
-  }
-
-  window.submitPin = function() {
-    const val = document.getElementById('pin-input').value;
-    if (val === CORRECT_PIN) {
-      sessionStorage.setItem('rey_unlocked', 'yes');
-      document.getElementById('pin-screen').style.display = 'none';
-      initApp();
-    } else {
-      document.getElementById('pin-error').style.display = 'block';
-      document.getElementById('pin-input').value = '';
-      document.getElementById('pin-input').focus();
-    }
-  };
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && document.getElementById('pin-screen').style.display !== 'none') {
-      window.submitPin();
-    }
-  });
-
-  async function initApp() {
-    document.getElementById('app').style.display = 'block';
-    document.getElementById('loading').style.display = 'flex';
-
-    try {
-      const app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-      tasksCol = collection(db, 'tasks');
-      expensesCol = collection(db, 'expenses');
-      lithoniaCol = collection(db, 'lithonia');
-      firebaseReady = true;
-
-      // Check if collection is empty → seed it
-      const snap = await getDocs(tasksCol);
-      if (snap.empty) {
-        for (const t of SEED) {
-          await addDoc(tasksCol, { ...t, createdAt: Date.now() });
-        }
-      }
-
-      // Live listener — tasks
-      onSnapshot(tasksCol, snapshot => {
-        tasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        document.getElementById('loading').style.display = 'none';
-        render();
-      });
-
-      // One-time seed for Lithonia and Florida expenses if empty
-      const litSnap = await getDocs(lithoniaCol);
-      if (litSnap.empty) {
-        const lithoniaSeed = [
-          { date:'2026-04-19', store:'Mileage', item:'Smyrna → Lithonia', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:1 },
-          { date:'2026-04-19', store:'Mileage', item:'Lithonia → Smyrna', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:2 },
-          { date:'2026-04-23', store:'Mileage', item:'Smyrna → Lithonia', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:3 },
-          { date:'2026-04-23', store:'Mileage', item:'Lithonia → Smyrna', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:4 },
-          { date:'2026-05-01', store:'Mileage', item:'Atlanta Airport → Lithonia (morning)', amount:28, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:5 },
-          { date:'2026-05-01', store:'Mileage', item:'Lithonia → Smyrna (morning)', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:6 },
-          { date:'2026-05-01', store:'Mileage', item:'Smyrna → Lithonia (afternoon)', amount:28, category:'Transportation', card:'Truist Debit', location:'Smyrna, GA', addedAt:7 },
-          { date:'2026-05-01', store:'Mileage', item:'Lithonia → Smyrna (afternoon)', amount:28, category:'Transportation', card:'Truist Debit', location:'Lithonia, GA', addedAt:8 },
-          { date:'2026-04-01', store:'Gas Station', item:'Gas for Mercedes-Benz — back and forth trips', amount:69.77, category:'Transportation', card:'Truist Debit', location:'GA', addedAt:9 },
-          { date:'2026-04-01', store:'Airport Parking', item:'Airport parking', amount:40, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:10 },
-          { date:'2026-04-01', store:'DeKalb County', item:'Water bill (tenant never paid)', amount:837.55, category:'Home Supplies', card:'Truist Debit', location:'Lithonia, GA', addedAt:11 },
-          { date:'2026-05-01', store:'Home Depot', item:'Changing locks', amount:65.32, category:'Home Supplies', card:'Truist Debit', location:'Lithonia, GA', addedAt:12 },
-          { date:'2026-05-01', store:'HOA', item:'HOA fees — May 2026', amount:200, category:'Other', card:'Truist Debit', location:'Lithonia, GA', addedAt:13 },
-        ];
-        for (const e of lithoniaSeed) await addDoc(lithoniaCol, e);
-      }
-
-      // Add missing Florida expenses
-      const flSnap2 = await getDocs(expensesCol);
-      const existingFL = flSnap2.docs.map(d => d.data().item || '');
-      const floridaMissing = [
-        { date:'2026-04-29', store:'Frontier Airlines', item:'Flight ATL to FLL', amount:88.98, category:'Transportation', card:'Truist Debit', location:'Atlanta, GA', addedAt:Date.now()+1 },
-        { date:'2026-05-01', store:'Frontier Airlines', item:'Flight FLL to ATL', amount:93.20, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+2 },
-        { date:'2026-04-29', store:'Nu Car Rental', item:'Rental car Apr 29 to May 1', amount:96.28, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+3 },
-        { date:'2026-04-29', store:'La Quinta Sunrise', item:'Hotel stay Sunrise FL', amount:202.32, category:'Hotel/Lodging', card:'Truist Debit', location:'Sunrise, FL', addedAt:Date.now()+4 },
-        { date:'2026-04-01', store:'ADT', item:'Home security alarm system', amount:298.31, category:'Home Supplies', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+5 },
-        { date:'2026-04-01', store:'Gas Station', item:'Gas for rental car', amount:20.18, category:'Transportation', card:'Truist Debit', location:'FL', addedAt:Date.now()+6 },
-        { date:'2026-05-01', store:'Uber', item:'Uber rental car return to airport', amount:9.94, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+7 },
-        { date:'2026-04-29', store:'Mileage', item:'FLL airport to Pembroke Pines home', amount:21, category:'Transportation', card:'Truist Debit', location:'Fort Lauderdale, FL', addedAt:Date.now()+8 },
-        { date:'2026-04-29', store:'Mileage', item:'Pembroke Pines to Hotel La Quinta Sunrise', amount:21, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+9 },
-        { date:'2026-04-29', store:'Mileage', item:'Pembroke Pines to Home Depot Miramar', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+10 },
-        { date:'2026-04-29', store:'Mileage', item:'Home Depot Miramar to Pembroke Pines', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+11 },
-        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Walmart', amount:0.70, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+12 },
-        { date:'2026-04-30', store:'Mileage', item:'Walmart to Pembroke Pines home', amount:0.70, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+13 },
-        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Home Depot Miramar second trip', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+14 },
-        { date:'2026-04-30', store:'Mileage', item:'Home Depot Miramar to Pembroke Pines second trip', amount:2.80, category:'Transportation', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+15 },
-        { date:'2026-04-30', store:'Mileage', item:'Pembroke Pines to Hotel La Quinta Sunrise second trip', amount:21, category:'Transportation', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+16 },
-        { date:'2026-04-01', store:'Home Depot', item:'New door locks front after return', amount:48.12, category:'Home Supplies', card:'Truist Debit', location:'Miramar, FL', addedAt:Date.now()+17 },
-        { date:'2026-04-01', store:'Walmart', item:'New locks garage door after return', amount:32.06, category:'Home Supplies', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+18 },
-        { date:'2026-04-01', store:'Silver Lakes HOA', item:'HOA Silver Lakes 2026 increase', amount:62, category:'Other', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+19 },
-        { date:'2026-04-01', store:'Tiffany Cove HOA', item:'HOA Tiffany Cove 2026 increase', amount:6, category:'Other', card:'Truist Debit', location:'Pembroke Pines, FL', addedAt:Date.now()+20 },
-      ];
-      for (const e of floridaMissing) {
-        if (!existingFL.some(i => i === e.item)) await addDoc(expensesCol, e);
-      }
-
-      // Live listener — lithonia
-      onSnapshot(lithoniaCol, snapshot => {
-        lithoniaExpenses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        if (activeTab === 'lithonia') renderExpenses('lithonia', currentExpView || 'list');
-      });
-
-      // Live listener — expenses
-      onSnapshot(expensesCol, snapshot => {
-        expenses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        localStorage.setItem('rey_exp_count', String(expenses.length));
-        if (activeTab === 'expenses') renderExpenses('florida', currentExpView || 'list');
-      });
-
-    } catch (err) {
-      console.warn('Firebase not configured, using local storage fallback.', err);
-      firebaseReady = false;
-      tasks = JSON.parse(localStorage.getItem('rey_tasks_v2') || 'null') || SEED.map((t,i) => ({...t, id: String(i+1)}));
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('firebase-banner').style.display = 'flex';
-      render();
-    }
-  }
-
-  function saveLocal() {
-    localStorage.setItem('rey_tasks_v2', JSON.stringify(tasks));
-  }
-
-  // ---- CRUD ----
-  window.toggleTask = async function(id) {
-    const t = tasks.find(x => x.id === id);
-    if (!t) return;
-    const newDone = !t.done;
-    if (firebaseReady) {
-      await updateDoc(doc(db, 'tasks', id), { done: newDone });
-    } else {
-      t.done = newDone; saveLocal(); render();
-    }
-  };
-
-  window.openModal = function(id) {
-    const t = tasks.find(x => x.id === id);
-    if (!t) return;
-    editingId = id;
-    document.getElementById('modal-text').value = t.text;
-    document.getElementById('modal-cat').value = t.cat;
-    document.getElementById('modal-tag').value = t.tag || 'pending';
-    // Convert stored date to YYYY-MM-DD for date input
-  const pd = parseTaskDate(t.date || '');
-  document.getElementById('modal-date').value = pd ? new Date(pd.getTime() - pd.getTimezoneOffset()*60000).toISOString().split('T')[0] : '';
-    document.getElementById('modal-overlay').classList.add('open');
-  };
-
-  window.closeModal = function() {
-    document.getElementById('modal-overlay').classList.remove('open');
-    editingId = null;
-  };
-
-  window.markDoneFromModal = async function() {
-    if (!editingId) return;
-    if (firebaseReady) {
-      await updateDoc(doc(db, 'tasks', editingId), { done: true });
-    } else {
-      const t = tasks.find(x => x.id === editingId);
-      if (t) t.done = true;
-      saveLocal(); render();
-    }
-    closeModal();
-  };
-
-  window.saveTask = async function() {
-    const text = document.getElementById('modal-text').value.trim();
-    const cat  = document.getElementById('modal-cat').value;
-    const tag  = document.getElementById('modal-tag').value;
-    const rawDate = document.getElementById('modal-date').value;
-  let date = '';
-  if (rawDate) {
-    const [y,m,d] = rawDate.split('-');
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    date = months[parseInt(m)-1] + ' ' + parseInt(d);
-  }
-    if (!text) return;
-    if (firebaseReady) {
-      await updateDoc(doc(db, 'tasks', editingId), { text, cat, tag, date });
-    } else {
-      const t = tasks.find(x => x.id === editingId);
-      if (t) { t.text = text; t.cat = cat; t.tag = tag; t.date = date; }
-      saveLocal(); render();
-    }
-    closeModal();
-  };
-
-  window.deleteTask = async function() {
-    if (!confirm('Delete this task?')) return;
-    if (firebaseReady) {
-      await deleteDoc(doc(db, 'tasks', editingId));
-    } else {
-      tasks = tasks.filter(x => x.id !== editingId);
-      saveLocal(); render();
-    }
-    closeModal();
-  };
-
-  window.openAddTaskModal = function() {
-    // Pre-select category based on active tab
-    const catSelect = document.getElementById('new-task-cat');
-    const validCats = ['vehicles','nila','florida','property','legal','personal'];
-    if (validCats.includes(activeTab)) catSelect.value = activeTab;
-    else catSelect.value = 'personal';
-    document.getElementById('new-task-text').value = '';
-    document.getElementById('new-task-tag').value = 'pending';
-    document.getElementById('new-task-date').value = '';
-    document.getElementById('add-task-modal').classList.add('open');
-    setTimeout(() => document.getElementById('new-task-text').focus(), 100);
-  };
-
-  window.closeAddTaskModal = function() {
-    document.getElementById('add-task-modal').classList.remove('open');
-  };
-
-  window.submitNewTask = async function() {
-    const text = document.getElementById('new-task-text').value.trim();
-    if (!text) return;
-    const cat = document.getElementById('new-task-cat').value;
-    const tag = document.getElementById('new-task-tag').value;
-    const rawDate = document.getElementById('new-task-date').value;
-    let date = '';
-    if (rawDate) {
-      const [y,m,d] = rawDate.split('-');
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      date = months[parseInt(m)-1] + ' ' + parseInt(d);
-    }
-    const newTask = { text, cat, tag, date, done:false, createdAt: Date.now() };
-    if (firebaseReady) {
-      await addDoc(tasksCol, newTask);
-    } else {
-      tasks.push({ ...newTask, id: String(Date.now()) });
-      render();
-    }
-    closeAddTaskModal();
-  };
-
-  document.addEventListener('click', e => {
-    if (e.target.id === 'add-task-modal') closeAddTaskModal();
-  });
-
-  window.addTask = async function() {
-    const input = document.getElementById('new-task');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
-    const cat = (activeTab === 'all' || activeTab === 'urgent') ? 'personal' : activeTab;
-    const newTask = { text, cat, tag:'pending', date:'', done:false, createdAt: Date.now() };
-    if (firebaseReady) {
-      await addDoc(tasksCol, newTask);
-    } else {
-      tasks.push({ ...newTask, id: String(Date.now()) });
-      saveLocal(); render();
-    }
-    input.value = '';
-  };
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement.id === 'new-task') window.addTask();
-  });
-
-  // ---- DRAWER ----
-  window.openDrawer = function() {
-    document.getElementById('drawer').classList.add('open');
-    document.getElementById('drawer-overlay').classList.add('open');
-  };
-  window.closeDrawer = function() {
-    document.getElementById('drawer').classList.remove('open');
-    document.getElementById('drawer-overlay').classList.remove('open');
-  };
-  window.setTab = function(id) { activeTab = id; expSearchQuery = ''; expMonthFilter = ''; currentExpView = 'list'; closeDrawer(); render(); };
-
-  // ---- RENDER ----
-  const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-
-  function parseTaskDate(dateStr) {
-    if (!dateStr) return null;
-    const s = dateStr.trim();
-    // Handle M/D or M/D/YYYY format
-    const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
-    if (slashMatch) {
-      const month = parseInt(slashMatch[1]) - 1;
-      const day = parseInt(slashMatch[2]);
-      const year = slashMatch[3] ? parseInt(slashMatch[3]) : new Date().getFullYear();
-      return new Date(year, month, day);
-    }
-    // Handle YYYY-MM-DD format
-    const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (isoMatch) {
-      return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2])-1, parseInt(isoMatch[3]));
-    }
-    // Handle "May 11" or "May 11 2026" format
-    const parts = s.toLowerCase().split(/\s+/);
-    if (parts.length >= 2) {
-      const month = MONTHS[parts[0].substring(0,3)];
-      const day = parseInt(parts[1]);
-      if (month !== undefined && !isNaN(day)) {
-        const year = parts[2] ? parseInt(parts[2]) : new Date().getFullYear();
-        return new Date(year, month, day);
-      }
-    }
-    return null;
-  }
-
-  function getDateBucket(dateStr) {
-    const d = parseTaskDate(dateStr);
-    if (!d) return 'nodate';
-    const today = new Date(); today.setHours(0,0,0,0);
-    const diff = Math.floor((d - today) / 86400000);
-    if (diff < 0) return 'overdue';
-    if (diff === 0) return 'today';
-    if (diff <= 7) return 'thisweek';
-    return 'upcoming';
-  }
-
-  function countFor(catId) {
-    if (catId === 'all') return tasks.filter(t=>!t.done).length;
-    if (catId === 'urgent') return tasks.filter(t=>!t.done && t.tag==='urgent').length;
-    if (catId === 'bydate') return tasks.filter(t=>!t.done && t.date).length;
-    if (catId === 'expenses') return expenses.filter ? expenses.length : parseInt(localStorage.getItem('rey_exp_count') || '0');
-    if (catId === 'lithonia') return lithoniaExpenses ? lithoniaExpenses.length : 0;
-    return tasks.filter(t=>!t.done && t.cat===catId).length;
-  }
-
-  function renderByDate() {
-    const open = tasks.filter(t => !t.done);
-    const buckets = [
-      { id:'overdue',  label:'Overdue',   color:'#b91c1c', bg:'#fef2f2', border:'#fca5a5', dot:'&#128308;' },
-      { id:'today',    label:'Today',     color:'#92400e', bg:'#fffbeb', border:'#fcd34d', dot:'&#128309;' },
-      { id:'thisweek', label:'This week', color:'#1e40af', bg:'#eff6ff', border:'#93c5fd', dot:'&#128309;' },
-      { id:'upcoming', label:'Upcoming',  color:'#166534', bg:'#f0fdf4', border:'#86efac', dot:'&#128309;' },
-      { id:'nodate',   label:'No date',   color:'#6b6860', bg:'#f7f5f0', border:'#e4e2db', dot:'&#9898;' },
-    ];
-    let html = '';
-    buckets.forEach(b => {
-      const items = open.filter(t => getDateBucket(t.date) === b.id).sort((a,b) => { const da = parseTaskDate(a.date), db = parseTaskDate(b.date); if (!da && !db) return 0; if (!da) return 1; if (!db) return -1; return da - db; });
-      if (!items.length) return;
-      html += `
-        <div class="date-bucket">
-          <div class="date-bucket-header" style="background:${b.bg};border-left:3px solid ${b.border};">
-            <span class="date-bucket-label" style="color:${b.color};font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${b.label}</span>
-            <span class="date-bucket-count" style="background:${b.border};color:${b.color};font-family:'DM Mono',monospace;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">${items.length}</span>
-          </div>
-          <div class="date-bucket-tasks" style="margin-bottom:20px;">
-            ${items.map(t => {
-              const tm = TAG_META[t.tag] || TAG_META.pending;
-              const catLabel = CATS.find(c=>c.id===t.cat)?.label || t.cat;
-              return `<div class="task-row" onclick="openModal('${t.id}')">
-                <div class="check${t.done?' checked':''}" onclick="event.stopPropagation();toggleTask('${t.id}')"></div>
-                <div class="task-body">
-                  <div class="task-text">${t.text}</div>
-                  <div class="task-meta">
-                    <span class="tag ${tm.cls}">${tm.label}</span>
-                    <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:#f0ede8;color:#888;font-weight:500;">${catLabel}</span>
-                    ${t.date ? `<span class="task-date">${t.date}</span>` : ''}
-                  </div>
-                </div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
-    });
-    if (!html) html = '<div class="empty">No tasks with dates yet — tap any task to add a due date.</div>';
-    document.getElementById('task-area').innerHTML = html;
-  }
-
-  function render() {
-    const urgent = tasks.filter(t=>!t.done&&t.tag==='urgent').length;
-    const open   = tasks.filter(t=>!t.done).length;
-    const done   = tasks.filter(t=>t.done).length;
-    document.getElementById('s-urgent').textContent = urgent;
-    document.getElementById('s-open').textContent   = open;
-    document.getElementById('s-done').textContent   = done;
-
-    const now = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    document.getElementById('updated-top').textContent = now;
-
-    const TASK_CATS = ['all','bydate','urgent','vehicles','nila','florida','property','legal','personal'];
-    const EXP_CATS = ['expenses','lithonia'];
-    const renderNavGroup = (ids) => ids.map(id => {
-      const cat = CATS.find(x => x.id === id); if (!cat) return '';
-      return '<div class="sidebar-item' + (activeTab===id?' active':'') + '" onclick="setTab(\'' + id + '\')">' +
-             '<span>' + cat.label + '</span><span class="sidebar-count">' + countFor(id) + '</span></div>';
-    }).join('');
-    const navHTML = '<div class="sidebar-group-label">Tasks</div>' + renderNavGroup(TASK_CATS) +
-                    '<div class="sidebar-group-label" style="margin-top:16px;">Expenses</div>' + renderNavGroup(EXP_CATS);
-    document.getElementById('sidebar').innerHTML = navHTML;
-    document.getElementById('drawer-nav').innerHTML = navHTML;
-
-    if (activeTab === 'bydate') { renderByDate(); return; }
-    const addBar = document.getElementById('add-task-bar');
-    if (activeTab === 'expenses') {
-      renderExpenses('florida', currentExpView || 'list');
-      if (addBar) addBar.style.display = 'none';
-      return;
-    }
-    if (activeTab === 'lithonia') {
-      renderExpenses('lithonia', currentExpView || 'list');
-      if (addBar) addBar.style.display = 'none';
-      return;
-    }
-    if (addBar) addBar.style.display = 'block';
-
-    // Dashboard date picker (all tasks view only)
-    if (activeTab === 'all') {
-      const pickerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
-        <div style="font-family:'DM Mono',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;">Filter by date</div>
-        <input type="date" id="dash-date-picker" value="${dashDateFilter}"
-          onchange="dashDateFilter=this.value;render()"
-          style="font-family:'DM Sans',sans-serif;font-size:13px;color:#1a1917;background:#fff;border:1px solid #e4e2db;border-radius:7px;padding:7px 12px;outline:none;cursor:pointer;">
-        ${dashDateFilter ? `<button onclick="dashDateFilter='';render()" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;cursor:pointer;">✕ Clear</button>
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:#888;">Showing tasks due ${new Date(dashDateFilter+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</span>` : ''}
-      </div>`;
-      const existingPicker = document.getElementById('dash-date-picker-wrap');
-      if (!existingPicker) {
-        const wrap = document.createElement('div');
-        wrap.id = 'dash-date-picker-wrap';
-        wrap.innerHTML = pickerHTML;
-        const taskArea = document.getElementById('task-area');
-        taskArea.parentNode.insertBefore(wrap, taskArea);
-      } else {
-        existingPicker.innerHTML = pickerHTML;
-      }
-    } else {
-      const picker = document.getElementById('dash-date-picker-wrap');
-      if (picker) picker.remove();
-    }
-
-    let filtered = activeTab === 'all' ? tasks :
-      activeTab === 'urgent' ? tasks.filter(t => t.tag === 'urgent') :
-      tasks.filter(t => t.cat === activeTab);
-
-    // Apply dashboard date filter
-    if (activeTab === 'all' && dashDateFilter) {
-      filtered = filtered.filter(t => {
-        if (!t.date) return false;
-        const td = parseTaskDate(t.date);
-        if (!td) return false;
-        const fd = new Date(dashDateFilter + 'T12:00:00');
-        return td.getFullYear()===fd.getFullYear() && td.getMonth()===fd.getMonth() && td.getDate()===fd.getDate();
-      });
-    }
-    const openTasks = filtered.filter(t => !t.done);
-    const doneTasks = filtered.filter(t => t.done);
-
-    let html = '';
-    if (openTasks.length === 0 && doneTasks.length === 0) {
-      html = '<div class="empty">Nothing here yet — add a task below.</div>';
-    } else {
-      html += renderTasksByDateCategory(openTasks, doneTasks);
-    }
-    document.getElementById('task-area').innerHTML = html;
-  }
-
-  function renderTasksByDateCategory(openTasks, doneTasks) {
-    const DATE_BUCKETS = [
-      { id:'overdue',  label:'Overdue',   color:'#b91c1c', bg:'#fef2f2', border:'#fca5a5' },
-      { id:'today',    label:'Today',     color:'#92400e', bg:'#fffbeb', border:'#fcd34d' },
-      { id:'thisweek', label:'This week', color:'#1e40af', bg:'#eff6ff', border:'#93c5fd' },
-      { id:'upcoming', label:'Upcoming',  color:'#166534', bg:'#f0fdf4', border:'#86efac' },
-      { id:'nodate',   label:'No date',   color:'#6b6860', bg:'#f7f5f0', border:'#e4e2db' },
-    ];
-    const CAT_LABELS = {
-      vehicles:'Vehicles / logistics', nila:'Nación Nila', florida:'Florida move',
-      property:'Property', legal:'Legal / divorce', personal:'Personal'
-    };
-
-    let html = '';
-
-    DATE_BUCKETS.forEach(bucket => {
-      const bucketTasks = openTasks.filter(t => getDateBucket(t.date) === bucket.id);
-      if (!bucketTasks.length) return;
-
-      // Group by category
-      const byCat = {};
-      bucketTasks.forEach(t => {
-        const cat = t.cat || 'personal';
-        if (!byCat[cat]) byCat[cat] = [];
-        byCat[cat].push(t);
-      });
-
-      let catHTML = '';
-      Object.entries(byCat).forEach(([cat, catTasks]) => {
-        const catLabel = CAT_LABELS[cat] || cat;
-        catHTML += `<div style="margin-bottom:14px;">
-          <div class="cat-hdr">
-            <span class="cat-hdr-label">${catLabel}</span>
-            <span class="cat-hdr-count">${catTasks.length}</span>
-          </div>
-          ${catTasks.map(t => taskHTML(t)).join('')}
-        </div>`;
-      });
-
-      html += `<div style="margin-bottom:24px;">
-        <div style="background:${bucket.bg};border-left:3px solid ${bucket.border};border-radius:2px 2px 0 0;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
-          <span style="font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:${bucket.color};">${bucket.label}</span>
-          <span style="background:${bucket.border};color:${bucket.color};font-family:'DM Mono',monospace;font-size:10px;padding:2px 10px;border-radius:20px;font-weight:600;">${bucketTasks.length} task${bucketTasks.length!==1?'s':''}</span>
-        </div>
-        <div style="padding:4px 0 0 0;">${catHTML}</div>
-      </div>`;
-    });
-
-    // Completed section — flat list at bottom
-    if (doneTasks.length) {
-      html += `<div class="section">
-        <div class="section-header">
-          <div class="section-title">Completed</div>
-          <div class="section-line"></div>
-          <div class="section-count">${doneTasks.length}</div>
-        </div>
-        ${doneTasks.map(t => taskHTML(t)).join('')}
-      </div>`;
-    }
-
-    return html || '<div class="empty">Nothing here yet.</div>';
-  }
-
-  function section(title, items) {
-    return `<div class="section">
-      <div class="section-header">
-        <div class="section-title">${title}</div>
-        <div class="section-line"></div>
-        <div class="section-count">${items.length}</div>
-      </div>
-      ${items.map(taskHTML).join('')}
-    </div>`;
-  }
-
-  function taskHTML(t) {
-    const tm = TAG_META[t.tag] || TAG_META.pending;
-    return `<div class="task-row${t.done?' done-row':''}" onclick="openModal('${t.id}')">
-      <div class="check${t.done?' checked':''}" onclick="event.stopPropagation();toggleTask('${t.id}')"></div>
-      <div class="task-body">
-        <div class="task-text${t.done?' struck':''}">${t.text}</div>
-        <div class="task-meta">
-          ${!t.done ? `<span class="tag ${tm.cls}">${tm.label}</span>` : ''}
-          ${t.date ? `<span class="task-date">${t.date}</span>` : ''}
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // close modal on overlay click
-  document.addEventListener('click', e => {
-    if (e.target.id === 'modal-overlay') window.closeModal();
-  });
-
-
-  // ---- EXPENSES ----
-  let expenses = JSON.parse(localStorage.getItem('rey_expenses') || '[]');
-
-  function saveExpenses() {
-    // local fallback only — Firestore is the source of truth when connected
-    localStorage.setItem('rey_expenses', JSON.stringify(expenses));
-    localStorage.setItem('rey_exp_count', String(expenses.length));
-  }
-
-  function renderExpenses(section='florida', view='list') {
-    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
-    const sectionLabel = section === 'lithonia' ? 'Lithonia' : 'Florida';
-    const filteredData = data.filter(e => {
-      // Text search
-      if (expSearchQuery) {
-        const q = expSearchQuery.toLowerCase();
-        const matchesText = (e.store||'').toLowerCase().includes(q)
-          || (e.item||'').toLowerCase().includes(q)
-          || (e.category||'').toLowerCase().includes(q)
-          || (e.location||'').toLowerCase().includes(q)
-          || (e.card||'').toLowerCase().includes(q);
-        if (!matchesText) return false;
-      }
-      // Month filter
-      if (expMonthFilter && e.date) {
-        const [fy, fm] = expMonthFilter.split('-');
-        const [ey, em] = (e.date || '').split('-');
-        if (ey !== fy || em !== fm) return false;
-      }
-      return true;
-    });
-    const total = filteredData.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    const cards = ['Truist Debit','American Express','Chase Mastercard','Other'];
-    const cats = ['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
-
-    // Group by category
-    const byCat = {};
-    data.forEach(e => {
-      const cat = e.category || 'Other';
-      if (!byCat[cat]) byCat[cat] = [];
-      byCat[cat].push(e);
-    });
-    const catTotals = Object.entries(byCat).sort((a,b) => b[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0) - a[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0));
-
-    const expCardHTML = (e) => `<div class="exp-card" onclick="openExpenseModal('${e.id}','${section}')" style="cursor:pointer;">
-              <div class="exp-card-top">
-                <div>
-                  <div class="exp-store">${e.store || 'Unknown'}</div>
-                  <div class="exp-item">${e.item || ''}</div>
-                </div>
-                <div class="exp-amount">$${parseFloat(e.amount || 0).toFixed(2)}</div>
-              </div>
-              <div class="exp-card-meta">
-                ${e.card ? `<span class="exp-pill" style="background:#faf8f3;border:1px solid #c9b882;color:#92400e;">💳 ${e.card}</span>` : ''}
-                ${e.category ? `<span class="exp-pill">${e.category}</span>` : ''}
-                ${e.location ? `<span class="exp-pill">📍 ${e.location}</span>` : ''}
-                ${e.date ? `<span class="exp-pill">📅 ${new Date(e.date + 'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>` : ''}
-                <button class="exp-del" onclick="event.stopPropagation();deleteExpense('${e.id}')">✕</button>
-              </div>
-            </div>`;
-
-    const listView = filteredData.length === 0
-      ? '<div class="empty">No expenses match your search.</div>'
-      : [...filteredData].sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).map(expCardHTML).join('');
-
-    // Group filteredData by category
-    const byCatF = {};
-    filteredData.forEach(e => { const cat = e.category || 'Other'; if (!byCatF[cat]) byCatF[cat] = []; byCatF[cat].push(e); });
-    const catTotalsF = Object.entries(byCatF).sort((a,b) => b[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0) - a[1].reduce((s,e)=>s+(parseFloat(e.amount)||0),0));
-    const catView = catTotalsF.length === 0
-      ? '<div class="empty">No expenses match your search.</div>'
-      : catTotalsF.map(([cat, items]) => {
-          const catTotal = items.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
-          return `<div class="date-bucket">
-            <div class="date-bucket-header" style="background:#f7f5f0;border-left:3px solid #c9b882;">
-              <span style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#1a1917;">${cat}</span>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-family:'DM Mono',monospace;font-size:11px;color:#888;">${items.length} item${items.length!==1?'s':''}</span>
-                <span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#166534;">$${catTotal.toFixed(2)}</span>
-              </div>
-            </div>
-            <div class="date-bucket-tasks">${[...items].sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).map(expCardHTML).join('')}</div>
-          </div>`;
-        }).join('');
-
-    const html = `
-      <div class="exp-header">
-        <div>
-          <div class="exp-total-label">Total spent</div>
-          <div class="exp-total">$${total.toFixed(2)}</div>
-          <div style="font-size:11px;color:#aaa;font-family:'DM Mono',monospace;margin-top:2px;">${filteredData.length} expense${filteredData.length !== 1 ? 's' : ''}${expSearchQuery ? ' (filtered)' : ''}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-          <div style="display:flex;gap:6px;">
-            <button onclick="currentExpView='list';renderExpenses('${section}','list')" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #e4e2db;background:${view==='list'?'var(--ink)':'transparent'};color:${view==='list'?'var(--gold)':'var(--text3)'};cursor:pointer;">List</button>
-            <button onclick="currentExpView='category';renderExpenses('${section}','category')" style="font-family:'DM Sans',sans-serif;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #e4e2db;background:${view==='category'?'var(--ink)':'transparent'};color:${view==='category'?'var(--gold)':'var(--text3)'};cursor:pointer;">By category</button>
-          </div>
-          <div style='display:flex;gap:8px;flex-wrap:wrap;'>
-            <button class="exp-scan-btn" onclick="toggleAddForm()">+ Add expense</button>
-            <button class="exp-scan-btn" style="background:#2a6041;" onclick="exportToExcel('${section}')">&#8595; Export Excel</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="exp-add-form" style="display:none;background:#f7f5f0;border:1px solid #e4e2db;border-radius:10px;padding:18px;margin-bottom:20px;">
-        <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#999;margin-bottom:14px;">New expense</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
-          <div>
-            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Store / Vendor</label>
-            <input id="exp-store" class="modal-input" placeholder="e.g. Walmart" style="width:100%;">
-          </div>
-          <div>
-            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Amount ($)</label>
-            <input id="exp-amount" class="modal-input" type="number" step="0.01" placeholder="0.00" style="width:100%;">
-          </div>
-        </div>
-        <div style="margin-bottom:10px;">
-          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Item / Description</label>
-          <input id="exp-item" class="modal-input" placeholder="What did you buy?" style="width:100%;">
-        </div>
-        <div style="margin-bottom:10px;">
-          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Payment card</label>
-          <select id="exp-card" class="modal-input" style="width:100%;">
-            ${cards.map(card => `<option>${card}</option>`).join('')}
-          </select>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
-          <div>
-            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Category</label>
-            <select id="exp-cat" class="modal-input" style="width:100%;">
-              ${cats.map(cat => `<option>${cat}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Date</label>
-            <input id="exp-date" class="modal-input" type="date" style="width:100%;" value="${new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().split('T')[0]}">
-          </div>
-        </div>
-        <div style="margin-bottom:14px;">
-          <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#aaa;display:block;margin-bottom:4px;">Location (optional)</label>
-          <input id="exp-location" class="modal-input" placeholder="e.g. Hollywood, FL" style="width:100%;">
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;">
-          <button onclick="toggleAddForm()" style="font-family:'DM Sans',sans-serif;font-size:13px;padding:9px 16px;border-radius:7px;border:1px solid #e4e2db;background:transparent;color:#888;cursor:pointer;">Cancel</button>
-          <button onclick="saveExpenseManual()" style="font-family:'Syne',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:9px 20px;border-radius:7px;border:none;background:#1a1917;color:#c9b882;cursor:pointer;">Save</button>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-        <input
-          id="exp-search"
-          type="text"
-          placeholder="Search store, item, category..."
-          value="${expSearchQuery}"
-          oninput="expSearchQuery=this.value;renderExpenses('${section}','${view}')"
-          style="flex:1;min-width:160px;font-family:'Montserrat',sans-serif;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:1px;padding:9px 14px;outline:none;box-sizing:border-box;"
-        >
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3);white-space:nowrap;">Month</span>
-          <input
-            id="exp-month"
-            type="month"
-            value="${expMonthFilter}"
-            onchange="expMonthFilter=this.value;renderExpenses('${section}','${view}')"
-            style="font-family:'Montserrat',sans-serif;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:1px;padding:9px 12px;outline:none;cursor:pointer;"
-          >
-          ${expMonthFilter || expSearchQuery ? `<button onclick="expMonthFilter='';expSearchQuery='';renderExpenses('${section}','${view}')" style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:9px 14px;border-radius:1px;border:1px solid #e8c0c0;background:#fdf0f0;color:var(--red);cursor:pointer;white-space:nowrap;">✕ Clear</button>` : ''}
-        </div>
-      </div>
-      ${(expSearchQuery || expMonthFilter) ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-bottom:12px;letter-spacing:0.03em;">
-        ${filteredData.length} result${filteredData.length!==1?'s':''} · 
-        <strong style="color:var(--green);">$${filteredData.reduce((s,e)=>s+(parseFloat(e.amount)||0),0).toFixed(2)}</strong> total
-        ${expMonthFilter ? '· ' + new Date(expMonthFilter+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'}) : ''}
-      </div>` : ''}
-      <div class="exp-list">
-        ${view === 'category' ? catView : listView}
-      </div>`;
-    document.getElementById('task-area').innerHTML = html;
-  }
-
-  
-  window.exportToExcel = function(section) {
-    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
-    const label = section === 'lithonia' ? 'Lithonia' : 'Florida';
-    if (!data.length) { alert('No expenses to export.'); return; }
-    const headers = ['Date','Store / Vendor','Item / Description','Amount','Category','Payment Card','Location'];
-    const rows = [...data].sort((a,b)=>(a.addedAt||0)-(b.addedAt||0)).map(e => [
-      e.date || '', e.store || '', e.item || '',
-      parseFloat(e.amount || 0).toFixed(2),
-      e.category || '', e.card || '', e.location || ''
-    ]);
-    const total = data.reduce((s,e) => s + (parseFloat(e.amount)||0), 0);
-    rows.push(['','','TOTAL', total.toFixed(2),'','','']);
-    const csv = [headers, ...rows].map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = label + '_Expenses_' + new Date().toISOString().split('T')[0] + '.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  window.toggleAddForm = function() {
-    const f = document.getElementById('exp-add-form');
-    if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
-  };
-
-  window.saveExpenseManual = async function() {
-    const store = document.getElementById('exp-store').value.trim();
-    const amount = document.getElementById('exp-amount').value;
-    const item = document.getElementById('exp-item').value.trim();
-    const category = document.getElementById('exp-cat').value;
-    const date = document.getElementById('exp-date').value;
-    const location = document.getElementById('exp-location').value.trim();
-    if (!store && !amount) return;
-    const card = document.getElementById('exp-card').value;
-    const newExp = { store, amount: parseFloat(amount) || 0, item, category, card, date, location, addedAt: Date.now(), section: activeTab };
-    const col = activeTab === 'lithonia' ? lithoniaCol : expensesCol;
-    if (firebaseReady) {
-      await addDoc(col, newExp);
-    } else {
-      expenses.push(newExp);
-      saveExpenses();
-      renderExpenses();
-    }
-    toggleAddForm();
-  };
-
-  window.deleteExpense = async function(id) {
-    if (!confirm('Delete this expense?')) return;
-    if (firebaseReady && id) {
-      await deleteDoc(doc(db, 'expenses', id));
-    } else {
-      expenses = expenses.filter(e => e.id !== id && e.addedAt !== id);
-      saveExpenses();
-      renderExpenses();
-    }
-  };
-
-
-
-  // ---- EXPENSE EDIT MODAL ----
-  let editingExpId = null;
-  let editingExpSection = 'florida';
-
-  window.openExpenseModal = function(id, section) {
-    editingExpId = id;
-    editingExpSection = section;
-    const data = section === 'lithonia' ? lithoniaExpenses : expenses;
-    const e = data.find(x => x.id === id);
-    if (!e) return;
-    document.getElementById('emod-store').value = e.store || '';
-    document.getElementById('emod-item').value = e.item || '';
-    document.getElementById('emod-amount').value = e.amount || '';
-    document.getElementById('emod-card').value = e.card || 'Truist Debit';
-    document.getElementById('emod-cat').value = e.category || 'Other';
-    document.getElementById('emod-date').value = e.date || '';
-    document.getElementById('emod-location').value = e.location || '';
-    document.getElementById('exp-modal-overlay').classList.add('open');
-  };
-
-  window.closeExpenseModal = function() {
-    document.getElementById('exp-modal-overlay').classList.remove('open');
-    editingExpId = null;
-  };
-
-  window.saveExpenseFromModal = async function() {
-    const col = editingExpSection === 'lithonia' ? lithoniaCol : expensesCol;
-    const updates = {
-      store: document.getElementById('emod-store').value.trim(),
-      item: document.getElementById('emod-item').value.trim(),
-      amount: parseFloat(document.getElementById('emod-amount').value) || 0,
-      card: document.getElementById('emod-card').value,
-      category: document.getElementById('emod-cat').value,
-      date: document.getElementById('emod-date').value,
-      location: document.getElementById('emod-location').value.trim(),
-    };
-    if (firebaseReady) {
-      await updateDoc(doc(db, editingExpSection === 'lithonia' ? 'lithonia' : 'expenses', editingExpId), updates);
-      // Firestore listener will re-render automatically
-    } else {
-      const data = editingExpSection === 'lithonia' ? lithoniaExpenses : expenses;
-      const e = data.find(x => x.id === editingExpId);
-      if (e) Object.assign(e, updates);
-      renderExpenses(editingExpSection, currentExpView || 'list');
-    }
-    closeExpenseModal();
-  };
-
-  window.deleteExpenseFromModal = async function() {
-    if (!confirm('Delete this expense?')) return;
-    const colName = editingExpSection === 'lithonia' ? 'lithonia' : 'expenses';
-    if (firebaseReady) {
-      await deleteDoc(doc(db, colName, editingExpId));
-    } else {
-      if (editingExpSection === 'lithonia') {
-        lithoniaExpenses = lithoniaExpenses.filter(x => x.id !== editingExpId);
-      } else {
-        expenses = expenses.filter(x => x.id !== editingExpId);
-      }
-      renderExpenses(editingExpSection);
-    }
-    closeExpenseModal();
-  };
-
-  document.addEventListener('click', e => {
-    if (e.target.id === 'exp-modal-overlay') window.closeExpenseModal();
-  });
-
-
-
-</script>
-
 <style>
-/* Additional inline styles if needed */
+:root{--ink:#0d0c0a;--ink2:#1c1a16;--ink3:#2a2720;--surface:#f5f2ec;--surface2:#eeebe3;--gold:#b8976a;--gold2:#d4b483;--text:#1c1a16;--text2:#5a5649;--text3:#9a9488;--border:#ddd8cc;--border2:#c8c2b4;--red:#8b2020;--green:#1a4a2a;--green-bg:#f0f8f2;--blue:#1a3a5c;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Montserrat',sans-serif;background:var(--surface);color:var(--text);min-height:100vh;}
+#pin-screen{display:none;position:fixed;inset:0;background:var(--ink);z-index:1000;align-items:center;justify-content:center;flex-direction:column;}
+.pin-box{background:var(--ink2);border:1px solid rgba(184,151,106,.2);border-radius:2px;padding:52px 48px;width:90%;max-width:380px;text-align:center;}
+.pin-logo{font-family:'Cormorant Garamond',serif;font-size:11px;font-weight:500;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);margin-bottom:6px;}
+.pin-sub{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.2);margin-bottom:36px;}
+.pin-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.35);margin-bottom:10px;}
+#pin-input{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(184,151,106,.25);border-radius:1px;color:var(--gold2);font-family:'DM Mono',monospace;font-size:28px;letter-spacing:.4em;text-align:center;padding:14px;outline:none;margin-bottom:16px;}
+#pin-input:focus{border-color:var(--gold);}
+.pin-btn{width:100%;background:var(--gold);color:var(--ink);border:none;border-radius:1px;font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;padding:14px;cursor:pointer;}
+#pin-error{display:none;font-size:11px;color:#e07070;margin-top:12px;}
+#app{display:none;}
+#loading{display:none;position:fixed;inset:0;background:var(--surface);z-index:900;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+.spinner{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;}
+#offline-banner{display:none;background:#fffbeb;border-bottom:1px solid #fcd34d;padding:8px 24px;font-size:11px;color:#92400e;}
+.top-bar{background:var(--ink);padding:0 24px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(184,151,106,.15);}
+.top-left{display:flex;align-items:center;gap:14px;}
+.app-title{font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;color:var(--gold);}
+.top-date{font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,.25);}
+.lock-btn{background:none;border:1px solid rgba(184,151,106,.3);border-radius:1px;color:var(--gold);font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:6px 12px;cursor:pointer;}
+.hamburger{display:none;background:none;border:none;cursor:pointer;color:var(--gold);font-size:20px;}
+.summary-bar{background:var(--ink2);border-bottom:1px solid rgba(184,151,106,.12);padding:0 24px;height:68px;display:flex;align-items:center;gap:32px;}
+.stat-num{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:300;line-height:1;}
+.stat-num.red{color:#e07070;}.stat-num.amber{color:var(--gold2);}.stat-num.green{color:#70c090;}
+.stat-label{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:rgba(255,255,255,.3);margin-top:2px;font-weight:600;}
+.s-div{width:1px;height:28px;background:rgba(255,255,255,.08);}
+.layout{display:flex;min-height:calc(100vh - 126px);}
+.sidebar{width:215px;min-width:215px;background:var(--ink2);border-right:1px solid rgba(184,151,106,.1);padding:20px 0;position:sticky;top:126px;height:calc(100vh - 126px);overflow-y:auto;}
+.sb-group{font-family:'Cormorant Garamond',serif;font-size:10px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);opacity:.7;padding:14px 22px 6px;}
+.sb-item{display:flex;align-items:center;justify-content:space-between;padding:9px 22px;cursor:pointer;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.35);border-left:2px solid transparent;transition:all .15s;}
+.sb-item:hover{background:rgba(255,255,255,.04);color:rgba(255,255,255,.7);}
+.sb-item.active{color:var(--gold);border-left-color:var(--gold);background:rgba(184,151,106,.06);}
+.sb-count{font-family:'DM Mono',monospace;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:1px 7px;color:rgba(255,255,255,.3);}
+.sb-item.active .sb-count{background:rgba(184,151,106,.15);border-color:rgba(184,151,106,.3);color:var(--gold);}
+.sb-back{display:flex;align-items:center;gap:6px;padding:10px 22px 14px;cursor:pointer;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.6;border-bottom:1px solid rgba(184,151,106,.1);margin-bottom:8px;}
+.sb-back:hover{opacity:1;}
+.main{flex:1;padding:28px 32px 80px;max-width:900px;}
+.btn{font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:10px 18px;border-radius:1px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+.btn-dark{background:var(--ink);color:var(--gold);}
+.btn-green{background:#1a3d2a;color:#70c090;}
+.btn-blue{background:var(--blue);color:#a0c0e0;}
+.btn-cancel{font-family:'Montserrat',sans-serif;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:10px 16px;border-radius:1px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;}
+.btn-save{font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:10px 20px;border-radius:1px;border:none;background:var(--ink);color:var(--gold);cursor:pointer;}
+.btn-del{font-family:'Montserrat',sans-serif;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:10px 14px;border-radius:1px;border:1px solid #e8c0c0;background:#fdf0f0;color:var(--red);cursor:pointer;margin-right:auto;}
+.add-bar{background:#fff;border:1px solid var(--border);border-radius:2px;padding:14px 18px;display:flex;align-items:center;gap:12px;margin-bottom:24px;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.04);transition:border-color .15s;}
+.add-bar:hover{border-color:var(--gold);}
+.add-icon{width:28px;height:28px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--gold);font-size:18px;}
+.add-ph{font-size:12px;color:var(--text3);}
+.task-row{display:flex;align-items:flex-start;gap:12px;padding:11px 15px;background:#fff;border:1px solid var(--border);border-top:none;cursor:pointer;transition:background .12s,border-color .12s;}
+.task-row:hover{background:#fdfbf8;border-color:var(--gold);}
+.task-row.done-row{background:var(--surface2);}
+.task-row-first{border-top:1px solid var(--border)!important;}
+.task-row:last-child{border-radius:0 0 2px 2px;margin-bottom:10px;}
+.check{width:16px;height:16px;min-width:16px;border-radius:50%;border:1.5px solid var(--border2);margin-top:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;}
+.check:hover{border-color:var(--gold);}
+.check.checked{background:var(--ink);border-color:var(--ink);}
+.check.checked::after{content:'✓';font-size:9px;color:var(--gold);font-weight:700;}
+.task-body{flex:1;min-width:0;}
+.task-text{font-size:13px;line-height:1.5;color:var(--text);}
+.task-text.struck{text-decoration:line-through;color:var(--text3);}
+.task-meta{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;align-items:center;}
+.tag{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:20px;}
+.t-urgent{background:#fdf0f0;color:var(--red);border:1px solid #e8c0c0;}
+.t-pending{background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
+.task-date{font-family:'DM Mono',monospace;font-size:10px;color:var(--text2);font-weight:500;}
+.bucket-hdr{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;border-radius:2px 2px 0 0;margin-bottom:1px;}
+.bucket-lbl{font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;}
+.bucket-cnt{font-family:'DM Mono',monospace;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;}
+.cat-hdr{display:flex;align-items:center;gap:8px;padding:7px 13px;background:var(--ink);border-radius:2px;margin:8px 0 3px;}
+.cat-hdr-lbl{font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);}
+.cat-hdr-cnt{font-family:'DM Mono',monospace;font-size:9px;background:rgba(184,151,106,.15);border-radius:20px;padding:1px 7px;color:rgba(184,151,106,.7);}
+.sec{margin-bottom:24px;}
+.sec-hdr{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.sec-title{font-family:'DM Mono',monospace;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);white-space:nowrap;}
+.sec-line{flex:1;height:1px;background:var(--border);}
+.sec-cnt{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);}
+.empty{color:var(--text3);font-size:13px;padding:28px 0;text-align:center;}
+.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;}
+.home-card{background:#fff;border:1px solid var(--border);border-radius:2px;padding:28px 24px;cursor:pointer;transition:border-color .15s,box-shadow .15s;}
+.home-card:hover{border-color:var(--gold);box-shadow:0 2px 20px rgba(184,151,106,.12);}
+.home-card-lbl{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:var(--text3);margin-bottom:8px;}
+.home-card-num{font-family:'Cormorant Garamond',serif;font-size:44px;font-weight:300;color:var(--text);line-height:1;margin-bottom:6px;}
+.home-card-sub{font-size:10px;color:var(--text3);}
+.exp-card{background:#fff;border:1px solid var(--border);border-radius:2px;padding:15px 17px;margin-bottom:5px;cursor:pointer;transition:border-color .15s,box-shadow .15s;}
+.exp-card:hover{border-color:var(--gold);box-shadow:0 2px 12px rgba(184,151,106,.1);}
+.exp-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+.exp-store{font-family:'Montserrat',sans-serif;font-size:14px;font-weight:600;color:var(--text);}
+.exp-desc{font-size:12px;color:var(--text2);margin-top:2px;}
+.exp-amt{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:var(--green);white-space:nowrap;}
+.exp-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+.exp-pill{font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
+.exp-del{margin-left:auto;background:none;border:none;color:var(--border2);cursor:pointer;font-size:12px;padding:2px 5px;}
+.exp-del:hover{color:var(--red);}
+.exp-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.exp-total-lbl{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:var(--text3);margin-bottom:4px;}
+.exp-total-num{font-family:'Cormorant Garamond',serif;font-size:40px;font-weight:300;color:var(--text);line-height:1;}
+.exp-total-sub{font-size:10px;color:var(--text3);margin-top:4px;}
+.filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+.filter-sel{font-family:'Montserrat',sans-serif;font-size:12px;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:1px;padding:9px 14px;outline:none;cursor:pointer;}
+.filter-sel:focus{border-color:var(--gold);}
+.filter-lbl{font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);white-space:nowrap;}
+.filter-clear{font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:9px 14px;border-radius:1px;border:1px solid #e8c0c0;background:#fdf0f0;color:var(--red);cursor:pointer;}
+.action-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;}
+.exp-form{background:var(--surface2);border:1px solid var(--border);border-radius:2px;padding:20px;margin-top:16px;}
+.exp-form-title{font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--text3);margin-bottom:14px;}
+.overlay{display:none;position:fixed;inset:0;background:rgba(13,12,10,.7);z-index:400;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.overlay.open{display:flex;}
+.modal{background:#fff;border-radius:2px;width:92%;max-width:440px;padding:30px;box-shadow:0 24px 80px rgba(0,0,0,.2);border-top:3px solid var(--gold);max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;color:var(--text);margin-bottom:22px;}
+.field{margin-bottom:14px;}
+.field-lbl{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);margin-bottom:5px;}
+.field-inp{width:100%;font-family:'Montserrat',sans-serif;font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:1px;padding:9px 13px;outline:none;transition:border-color .15s;}
+.field-inp:focus{border-color:var(--gold);}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;align-items:center;}
+.done-btn{width:100%;font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:10px;border-radius:1px;border:1.5px solid #a0c8a8;background:var(--green-bg);color:var(--green);cursor:pointer;margin-top:12px;}
+.drawer-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;}
+.drawer-overlay.open{display:block;}
+.drawer{position:fixed;top:0;left:0;bottom:0;width:270px;background:var(--ink2);z-index:201;transform:translateX(-100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow-y:auto;padding:24px 0;border-right:1px solid rgba(184,151,106,.15);}
+.drawer.open{transform:translateX(0);}
+.drawer-hdr{display:flex;align-items:center;justify-content:space-between;padding:0 22px 18px;border-bottom:1px solid rgba(184,151,106,.1);margin-bottom:10px;}
+.drawer-title{font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--gold);}
+.drawer-close{background:none;border:none;cursor:pointer;font-size:16px;color:rgba(255,255,255,.3);}
+@media(max-width:640px){
+  .sidebar{display:none;}.hamburger{display:block;}
+  .main{padding:18px 16px 80px;}.top-bar{padding:0 16px;height:54px;}
+  .summary-bar{padding:0 16px;gap:20px;height:62px;}
+  .home-grid{grid-template-columns:1fr;}.home-card-num{font-size:32px;}
+  .exp-total-num{font-size:30px;}
+}
 </style>
 </head>
 <body>
 
-<!-- PIN SCREEN -->
 <div id="pin-screen">
   <div class="pin-box">
     <div class="pin-logo">Command Center</div>
-    <div class="pin-subtitle">Personal Operations</div>
+    <div class="pin-sub">Personal Operations</div>
     <div class="pin-label">Enter your PIN</div>
-    <input type="password" id="pin-input" maxlength="8" inputmode="numeric" placeholder="••••" />
+    <input type="password" id="pin-input" maxlength="8" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="••••">
     <button class="pin-btn" onclick="submitPin()">Unlock</button>
     <div id="pin-error">Incorrect PIN. Try again.</div>
   </div>
 </div>
 
-<!-- APP -->
 <div id="app">
-  <div id="loading">
-    <div class="spinner"></div>
-    <div class="loading-text">Connecting...</div>
-  </div>
+  <div id="loading"><div class="spinner"></div><div class="loading-text">Connecting...</div></div>
+  <div id="offline-banner">⚠️ Offline mode — changes saved on this device only.</div>
 
-  <div id="firebase-banner">
-    ⚠️ Running in offline mode — changes saved on this device only.
-  </div>
-
-  <!-- DRAWER -->
   <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
   <div class="drawer" id="drawer">
-    <div class="drawer-header">
+    <div class="drawer-hdr">
       <span class="drawer-title">Navigation</span>
       <button class="drawer-close" onclick="closeDrawer()">✕</button>
     </div>
     <div id="drawer-nav"></div>
   </div>
 
-  <!-- TASK EDIT MODAL -->
-  <div class="modal-overlay" id="modal-overlay">
+  <!-- TASK EDIT -->
+  <div class="overlay" id="task-modal">
     <div class="modal">
       <div class="modal-title">Edit task</div>
-      <div class="modal-field">
-        <label class="modal-label">Task</label>
-        <textarea class="modal-input" id="modal-text" rows="3" style="resize:none;"></textarea>
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Category</label>
-        <select class="modal-input" id="modal-cat">
-          <option value="vehicles">Vehicles / logistics</option>
-          <option value="nila">Nación Nila</option>
-          <option value="florida">Florida move</option>
-          <option value="property">Property</option>
-          <option value="legal">Legal / divorce</option>
-          <option value="personal">Personal</option>
+      <div class="field"><label class="field-lbl">Task</label><textarea class="field-inp" id="tm-text" rows="3" style="resize:none;"></textarea></div>
+      <div class="field"><label class="field-lbl">Category</label>
+        <select class="field-inp" id="tm-cat">
+          <option value="vehicles">Vehicles / logistics</option><option value="nila">Nación Nila</option>
+          <option value="florida">Florida move</option><option value="property">Property</option>
+          <option value="legal">Legal / divorce</option><option value="personal">Personal</option>
         </select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Priority</label>
-        <select class="modal-input" id="modal-tag">
-          <option value="urgent">Urgent</option>
-          <option value="pending">Pending</option>
-        </select>
+      <div class="field"><label class="field-lbl">Priority</label>
+        <select class="field-inp" id="tm-tag"><option value="pending">Pending</option><option value="urgent">Urgent</option></select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Due date</label>
-        <input class="modal-input" id="modal-date" type="date" />
-      </div>
+      <div class="field"><label class="field-lbl">Due date</label><input class="field-inp" id="tm-date" type="date"></div>
       <div class="modal-actions">
-        <button class="btn-delete" onclick="deleteTask()">Delete</button>
-        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-del" onclick="deleteTask()">Delete</button>
+        <button class="btn-cancel" onclick="closeTaskModal()">Cancel</button>
         <button class="btn-save" onclick="saveTask()">Save</button>
       </div>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-        <button onclick="markDoneFromModal()" style="width:100%;font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:11px;border-radius:1px;border:1.5px solid #a0c8a8;background:var(--green-bg);color:var(--green);cursor:pointer;">✓ Mark as complete</button>
-      </div>
+      <button class="done-btn" onclick="markDone()">✓ Mark as complete</button>
     </div>
   </div>
 
-  <!-- ADD TASK MODAL -->
-  <div class="modal-overlay" id="add-task-modal">
+  <!-- ADD TASK -->
+  <div class="overlay" id="add-task-modal">
     <div class="modal">
       <div class="modal-title">New task</div>
-      <div class="modal-field">
-        <label class="modal-label">Task description</label>
-        <textarea class="modal-input" id="new-task-text" rows="3" style="resize:none;" placeholder="What needs to be done?"></textarea>
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Category</label>
-        <select class="modal-input" id="new-task-cat">
-          <option value="personal">Personal</option>
-          <option value="vehicles">Vehicles / logistics</option>
-          <option value="nila">Nación Nila</option>
-          <option value="florida">Florida move</option>
-          <option value="property">Property</option>
-          <option value="legal">Legal / divorce</option>
+      <div class="field"><label class="field-lbl">Description</label><textarea class="field-inp" id="at-text" rows="3" style="resize:none;" placeholder="What needs to be done?"></textarea></div>
+      <div class="field"><label class="field-lbl">Category</label>
+        <select class="field-inp" id="at-cat">
+          <option value="personal">Personal</option><option value="vehicles">Vehicles / logistics</option>
+          <option value="nila">Nación Nila</option><option value="florida">Florida move</option>
+          <option value="property">Property</option><option value="legal">Legal / divorce</option>
         </select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Priority</label>
-        <select class="modal-input" id="new-task-tag">
-          <option value="pending">Pending</option>
-          <option value="urgent">Urgent</option>
-        </select>
+      <div class="field"><label class="field-lbl">Priority</label>
+        <select class="field-inp" id="at-tag"><option value="pending">Pending</option><option value="urgent">Urgent</option></select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Due date (optional)</label>
-        <input class="modal-input" id="new-task-date" type="date" />
-      </div>
+      <div class="field"><label class="field-lbl">Due date (optional)</label><input class="field-inp" id="at-date" type="date"></div>
       <div class="modal-actions">
-        <button class="btn-cancel" onclick="closeAddTaskModal()">Cancel</button>
-        <button class="btn-save" onclick="submitNewTask()">Add task</button>
+        <button class="btn-cancel" onclick="closeAddTask()">Cancel</button>
+        <button class="btn-save" onclick="submitTask()">Add task</button>
       </div>
     </div>
   </div>
 
-  <!-- EXPENSE EDIT MODAL -->
-  <div class="modal-overlay" id="exp-modal-overlay">
+  <!-- EXPENSE EDIT -->
+  <div class="overlay" id="exp-modal">
     <div class="modal">
       <div class="modal-title">Edit expense</div>
-      <div class="modal-field">
-        <label class="modal-label">Store / Vendor</label>
-        <input class="modal-input" id="emod-store" type="text">
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Item / Description</label>
-        <input class="modal-input" id="emod-item" type="text">
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Amount ($)</label>
-        <input class="modal-input" id="emod-amount" type="number" step="0.01">
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Payment card</label>
-        <select class="modal-input" id="emod-card">
-          <option>Truist Debit</option>
-          <option>American Express</option>
-          <option>Chase Mastercard</option>
-          <option>Other</option>
+      <div class="field"><label class="field-lbl">Store / Vendor</label><input class="field-inp" id="em-store" type="text"></div>
+      <div class="field"><label class="field-lbl">Item / Description</label><input class="field-inp" id="em-item" type="text"></div>
+      <div class="field"><label class="field-lbl">Amount ($)</label><input class="field-inp" id="em-amount" type="number" step="0.01"></div>
+      <div class="field"><label class="field-lbl">Payment card</label>
+        <select class="field-inp" id="em-card">
+          <option>Truist Debit</option><option>American Express</option><option>Chase Mastercard</option><option>Other</option>
         </select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Category</label>
-        <select class="modal-input" id="emod-cat">
-          <option>Furniture</option><option>Electronics</option>
-          <option>Food & Grocery</option><option>Transportation</option>
-          <option>Home Supplies</option><option>Clothing</option>
+      <div class="field"><label class="field-lbl">Category</label>
+        <select class="field-inp" id="em-cat">
+          <option>Furniture</option><option>Electronics</option><option>Food & Grocery</option>
+          <option>Transportation</option><option>Home Supplies</option><option>Clothing</option>
           <option>Gas</option><option>Hotel/Lodging</option><option>Other</option>
         </select>
       </div>
-      <div class="modal-field">
-        <label class="modal-label">Date</label>
-        <input class="modal-input" id="emod-date" type="date">
-      </div>
-      <div class="modal-field">
-        <label class="modal-label">Location</label>
-        <input class="modal-input" id="emod-location" type="text">
-      </div>
+      <div class="field"><label class="field-lbl">Date</label><input class="field-inp" id="em-date" type="date"></div>
+      <div class="field"><label class="field-lbl">Location</label><input class="field-inp" id="em-location" type="text"></div>
       <div class="modal-actions">
-        <button class="btn-delete" onclick="deleteExpenseFromModal()">Delete</button>
-        <button class="btn-cancel" onclick="closeExpenseModal()">Cancel</button>
-        <button class="btn-save" onclick="saveExpenseFromModal()">Save</button>
+        <button class="btn-del" onclick="deleteExpense()">Delete</button>
+        <button class="btn-cancel" onclick="closeExpModal()">Cancel</button>
+        <button class="btn-save" onclick="saveExpense()">Save</button>
       </div>
     </div>
   </div>
 
-  <!-- TOP BAR -->
   <div class="top-bar">
-    <div class="top-bar-left">
+    <div class="top-left">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <span class="app-title">Command Center</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
-      <span class="top-meta" id="updated-top"></span>
-      <button onclick="lockApp()" style="background:none;border:1px solid rgba(184,151,106,0.3);border-radius:1px;color:var(--gold);font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:6px 14px;cursor:pointer;">🔒 Lock</button>
+      <span class="top-date" id="top-date"></span>
+      <button class="lock-btn" onclick="lockApp()">🔒 Lock</button>
     </div>
   </div>
 
-  <!-- SUMMARY -->
   <div class="summary-bar">
-    <div class="stat">
-      <div class="stat-num red" id="s-urgent">—</div>
-      <div class="stat-label">Urgent</div>
-    </div>
-    <div class="divider"></div>
-    <div class="stat">
-      <div class="stat-num amber" id="s-open">—</div>
-      <div class="stat-label">Open</div>
-    </div>
-    <div class="divider"></div>
-    <div class="stat">
-      <div class="stat-num green" id="s-done">—</div>
-      <div class="stat-label">Done</div>
-    </div>
+    <div class="stat"><div class="stat-num red" id="s-urgent">—</div><div class="stat-label">Urgent</div></div>
+    <div class="s-div"></div>
+    <div class="stat"><div class="stat-num amber" id="s-open">—</div><div class="stat-label">Open</div></div>
+    <div class="s-div"></div>
+    <div class="stat"><div class="stat-num green" id="s-done">—</div><div class="stat-label">Done</div></div>
   </div>
 
-  <!-- LAYOUT -->
   <div class="layout">
     <div class="sidebar" id="sidebar"></div>
     <div class="main">
-      <!-- ADD TASK BUTTON -->
-      <div id="add-task-bar" style="margin-bottom:24px;">
-        <button onclick="openAddTaskModal()" style="display:flex;align-items:center;gap:10px;width:100%;padding:14px 18px;background:#fff;border:1px solid var(--border);border-radius:2px;cursor:pointer;text-align:left;transition:border-color 0.15s,box-shadow 0.15s;box-shadow:0 2px 12px rgba(0,0,0,0.04);" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
-          <span style="width:28px;height:28px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <span style="color:var(--gold);font-size:16px;line-height:1;margin-top:-1px;">+</span>
-          </span>
-          <span style="font-family:'Montserrat',sans-serif;font-size:12px;font-weight:500;letter-spacing:0.04em;color:var(--text3);">Add a new task...</span>
-        </button>
+      <div id="add-task-bar" class="add-bar" onclick="openAddTask()">
+        <div class="add-icon">+</div>
+        <span class="add-ph">Add a new task...</span>
       </div>
+      <div id="exp-controls" style="display:none;"></div>
       <div id="task-area"></div>
     </div>
   </div>
+</div>
 
-</div><!-- end #app -->
+<!-- PIN bootstrap: plain script so it runs immediately, before Firebase module loads -->
+<script>
+(function(){
+  var PIN_VAL = "1234";
+  function boot(){
+    var ps = document.getElementById('pin-screen');
+    var pi = document.getElementById('pin-input');
+    if(!ps || !pi) return;
+    if(sessionStorage.getItem('unlocked')==='1'){
+      // app will be shown by the module once it loads; just hide pin screen
+      ps.style.display='none';
+    } else {
+      ps.style.display='flex';
+      pi.focus();
+    }
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', boot);
+  } else { boot(); }
 
+  window.submitPin = function(){
+    var pi = document.getElementById('pin-input');
+    var pe = document.getElementById('pin-error');
+    if(pi.value === PIN_VAL){
+      sessionStorage.setItem('unlocked','1');
+      document.getElementById('pin-screen').style.display='none';
+      // Signal the module to init if it's already ready
+      if(typeof window._moduleInitApp === 'function') window._moduleInitApp();
+      else window._pinUnlocked = true; // module will pick this up when it loads
+    } else {
+      if(pe) pe.style.display='block';
+      pi.value='';
+    }
+  };
+  document.addEventListener('keydown',function(e){
+    var ps=document.getElementById('pin-screen');
+    if(e.key==='Enter' && ps && ps.style.display!=='none') window.submitPin();
+  });
+})();
+</script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const PIN = "1234";
+const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
+
+let db,tasksCol,expCol,litCol,firebaseReady=false;
+let tasks=[],expenses=[],lithonia=[];
+let activeTab='home',activeTaskCat='all',activeExpSec='florida';
+let editingTaskId=null,editingExpId=null;
+let expCatFilter='',expMonthFilter='',expSearchFilter='';
+
+const CAT_LBL={vehicles:'Vehicles / logistics',nila:'Nación Nila',florida:'Florida move',property:'Property',legal:'Legal / divorce',personal:'Personal'};
+const EXP_CATS=['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
+const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── PIN (module side) ─────────────────────────────────────────
+// Register so the plain-script submitPin can call us after module loads
+window._moduleInitApp = function(){ initApp(); };
+window.lockApp=function(){sessionStorage.removeItem('unlocked');document.getElementById('app').style.display='none';document.getElementById('pin-screen').style.display='flex';document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();};
+
+// If pin was already unlocked before module finished loading, init now
+function startApp(){
+  if(sessionStorage.getItem('unlocked')==='1' || window._pinUnlocked){
+    window._pinUnlocked=false;
+    initApp();
+  }
+  // else: pin screen is already showing (handled by plain script above)
+}
+if(document.readyState==='loading'){
+  window.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+async function initApp(){
+  document.getElementById('app').style.display='block';
+  document.getElementById('loading').style.display='flex';
+  document.getElementById('top-date').textContent=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  try{
+    const app=initializeApp(FB);
+    db=getFirestore(app);
+    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');
+    firebaseReady=true;
+    const[tSnap,eSnap,lSnap]=await Promise.all([getDocs(tasksCol),getDocs(expCol),getDocs(litCol)]);
+    if(tSnap.empty){for(const t of TASK_SEED)await addDoc(tasksCol,t);}
+    if(lSnap.empty){for(const e of LIT_SEED)await addDoc(litCol,e);}
+    if(eSnap.empty){for(const e of FL_SEED)await addDoc(expCol,e);}
+    else{
+      const ex=eSnap.docs.map(d=>d.data().item||'');
+      for(const e of FL_SEED){if(!ex.includes(e.item))await addDoc(expCol,{...e,addedAt:Date.now()+Math.random()});}
+    }
+    onSnapshot(tasksCol,snap=>{tasks=snap.docs.map(d=>({id:d.id,...d.data()}));render();});
+    onSnapshot(expCol,snap=>{expenses=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses'){renderExpResults();renderSidebar();}else if(activeTab==='home')renderHome();else renderSidebar();});
+    onSnapshot(litCol,snap=>{lithonia=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses'){renderExpResults();renderSidebar();}else if(activeTab==='home')renderHome();else renderSidebar();});
+    render();
+  }catch(err){
+    console.warn(err);firebaseReady=false;
+    tasks=JSON.parse(localStorage.getItem('tasks')||'[]');
+    expenses=JSON.parse(localStorage.getItem('expenses')||'[]');
+    lithonia=JSON.parse(localStorage.getItem('lithonia')||'[]');
+    document.getElementById('offline-banner').style.display='block';
+    document.getElementById('loading').style.display='none';
+    render();
+  }
+}
+function saveLocal(){localStorage.setItem('tasks',JSON.stringify(tasks));localStorage.setItem('expenses',JSON.stringify(expenses));localStorage.setItem('lithonia',JSON.stringify(lithonia));}
+
+// ── HELPERS ───────────────────────────────────────────────────
+function parseDate(s){
+  if(!s)return null;
+  const sl=s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+  if(sl)return new Date(sl[3]||new Date().getFullYear(),parseInt(sl[1])-1,parseInt(sl[2]));
+  const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso)return new Date(parseInt(iso[1]),parseInt(iso[2])-1,parseInt(iso[3]));
+  const p=s.trim().toLowerCase().split(/\s+/);
+  if(p.length>=2){const m=MONTHS[p[0].substring(0,3)];const d=parseInt(p[1]);if(m!==undefined&&!isNaN(d))return new Date(new Date().getFullYear(),m,d);}
+  return null;
+}
+function dateBucket(s){
+  const d=parseDate(s);if(!d)return'nodate';
+  const t=new Date();t.setHours(0,0,0,0);
+  const diff=Math.floor((d-t)/86400000);
+  if(diff<0)return'overdue';if(diff===0)return'today';if(diff<=7)return'thisweek';return'upcoming';
+}
+function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}catch{return s;}}
+function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
+function getFiltered(data){
+  return data.filter(e=>{
+    if(expCatFilter&&(e.category||'')!==expCatFilter)return false;
+    if(expMonthFilter&&e.date){const[fy,fm]=expMonthFilter.split('-');const[ey,em]=(e.date||'').split('-');if(ey!==fy||em!==fm)return false;}
+    if(expSearchFilter){const q=expSearchFilter.toLowerCase();const haystack=((e.store||'')+' '+(e.item||'')).toLowerCase();if(!haystack.includes(q))return false;}
+    return true;
+  });
+}
+function dateToISO(s){const d=parseDate(s);if(!d)return'';return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split('T')[0];}
+function isoToDisplay(raw){if(!raw)return'';const[y,m,d]=raw.split('-');return MN[parseInt(m)-1]+' '+parseInt(d);}
+
+
+function escapeHTML(str){
+  return String(str ?? '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ── NAVIGATION ────────────────────────────────────────────────
+window.navTo=function(tab,taskCat,expSec){
+  activeTab=tab;
+  if(taskCat)activeTaskCat=taskCat;
+  if(expSec)activeExpSec=expSec;
+  expCatFilter='';expMonthFilter='';expSearchFilter='';
+  closeDrawer();render();
+};
+
+// ── RENDER ────────────────────────────────────────────────────
+function render(){
+  document.getElementById('loading').style.display='none';
+  document.getElementById('s-urgent').textContent=tasks.filter(t=>!t.done&&t.tag==='urgent').length;
+  document.getElementById('s-open').textContent=tasks.filter(t=>!t.done).length;
+  document.getElementById('s-done').textContent=tasks.filter(t=>t.done).length;
+  renderSidebar();
+  const ab=document.getElementById('add-task-bar');
+  const ec=document.getElementById('exp-controls');
+  if(activeTab==='home'){ab.style.display='none';ec.style.display='none';renderHome();}
+  else if(activeTab==='tasks'){ab.style.display='flex';ec.style.display='none';renderTasks();}
+  else{ab.style.display='none';renderExpenses();}
+}
+
+function renderSidebar(){
+  let html='';
+  if(activeTab==='home'){
+    html=`<div class="sb-item${activeTab==='home'?' active':''}" onclick="navTo('home')"><span>🏠 Home</span></div>
+    <div class="sb-group">Tasks</div>
+    <div class="sb-item" onclick="navTo('tasks','all')"><span>All tasks</span><span class="sb-count">${tasks.filter(t=>!t.done).length}</span></div>
+    <div class="sb-group">Expenses</div>
+    <div class="sb-item" onclick="navTo('expenses','','florida')"><span>Florida</span><span class="sb-count">${expenses.length}</span></div>
+    <div class="sb-item" onclick="navTo('expenses','','lithonia')"><span>Lithonia</span><span class="sb-count">${lithonia.length}</span></div>`;
+  }else if(activeTab==='tasks'){
+    const cats=[{id:'all',l:'All tasks',n:tasks.filter(t=>!t.done).length},{id:'bydate',l:'By due date',n:tasks.filter(t=>!t.done&&t.date).length},{id:'urgent',l:'Urgent',n:tasks.filter(t=>!t.done&&t.tag==='urgent').length},{id:'vehicles',l:'Vehicles',n:tasks.filter(t=>!t.done&&t.cat==='vehicles').length},{id:'nila',l:'Nación Nila',n:tasks.filter(t=>!t.done&&t.cat==='nila').length},{id:'florida',l:'Florida move',n:tasks.filter(t=>!t.done&&t.cat==='florida').length},{id:'property',l:'Property',n:tasks.filter(t=>!t.done&&t.cat==='property').length},{id:'legal',l:'Legal / divorce',n:tasks.filter(t=>!t.done&&t.cat==='legal').length},{id:'personal',l:'Personal',n:tasks.filter(t=>!t.done&&t.cat==='personal').length}];
+    html=`<div class="sb-back" onclick="navTo('home')">← Back</div><div class="sb-group">Tasks</div>`+cats.map(c=>`<div class="sb-item${activeTaskCat===c.id?' active':''}" onclick="navTo('tasks','${c.id}')"><span>${c.l}</span><span class="sb-count">${c.n}</span></div>`).join('');
+  }else{
+    html=`<div class="sb-back" onclick="navTo('home')">← Back</div><div class="sb-group">Expenses</div>
+    <div class="sb-item${activeExpSec==='florida'?' active':''}" onclick="navTo('expenses','','florida')"><span>Florida</span><span class="sb-count">${expenses.length}</span></div>
+    <div class="sb-item${activeExpSec==='lithonia'?' active':''}" onclick="navTo('expenses','','lithonia')"><span>Lithonia</span><span class="sb-count">${lithonia.length}</span></div>`;
+  }
+  document.getElementById('sidebar').innerHTML=html;
+  document.getElementById('drawer-nav').innerHTML=html;
+}
+
+// ── HOME ──────────────────────────────────────────────────────
+function renderHome(){
+  const eT=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const lT=lithonia.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const urgent=tasks.filter(t=>!t.done&&t.tag==='urgent');
+  let html=`<div class="home-grid">
+    <div class="home-card" onclick="navTo('tasks','all')">
+      <div class="home-card-lbl">Tasks</div>
+      <div class="home-card-num">${tasks.filter(t=>!t.done).length}</div>
+      <div class="home-card-sub">${tasks.filter(t=>!t.done&&t.tag==='urgent').length} urgent · ${tasks.filter(t=>t.done).length} done</div>
+    </div>
+    <div class="home-card" onclick="navTo('expenses','','florida')">
+      <div class="home-card-lbl">Total expenses</div>
+      <div class="home-card-num">$${(eT+lT).toFixed(0)}</div>
+      <div class="home-card-sub">FL $${eT.toFixed(0)} · GA $${lT.toFixed(0)}</div>
+    </div>
+  </div>`;
+  if(urgent.length){html+=`<div class="sec"><div class="sec-hdr"><div class="sec-title">Urgent tasks</div><div class="sec-line"></div><div class="sec-cnt">${urgent.length}</div></div>${urgent.slice(0,5).map(taskRow).join('')}</div>`;}
+  document.getElementById('task-area').innerHTML=html;
+}
+
+// ── TASKS ─────────────────────────────────────────────────────
+function renderTasks(){
+  let filtered=tasks;
+  if(activeTaskCat==='urgent')filtered=tasks.filter(t=>t.tag==='urgent');
+  else if(activeTaskCat!=='all'&&activeTaskCat!=='bydate')filtered=tasks.filter(t=>t.cat===activeTaskCat);
+  const open=filtered.filter(t=>!t.done);
+  const done=filtered.filter(t=>t.done);
+  const BUCKETS=[
+    {id:'overdue',label:'Overdue',color:'#b91c1c',bg:'#fef2f2',border:'#fca5a5'},
+    {id:'today',label:'Today',color:'#92400e',bg:'#fffbeb',border:'#fcd34d'},
+    {id:'thisweek',label:'This week',color:'#1e40af',bg:'#eff6ff',border:'#93c5fd'},
+    {id:'upcoming',label:'Upcoming',color:'#166534',bg:'#f0fdf4',border:'#86efac'},
+    {id:'nodate',label:'No date',color:'#6b6860',bg:'#f7f5f0',border:'#e4e2db'},
+  ];
+  let html='';
+  BUCKETS.forEach(b=>{
+    const bt=open.filter(t=>dateBucket(t.date)===b.id);if(!bt.length)return;
+    const byCat={};bt.forEach(t=>{const c=t.cat||'personal';if(!byCat[c])byCat[c]=[];byCat[c].push(t);});
+    let catHTML='';
+    Object.entries(byCat).forEach(([cat,ct])=>{
+      catHTML+=`<div style="margin-bottom:12px;"><div class="cat-hdr"><span class="cat-hdr-lbl">${CAT_LBL[cat]||cat}</span><span class="cat-hdr-cnt">${ct.length}</span></div>${ct.map(taskRow).join('')}</div>`;
+    });
+    html+=`<div style="margin-bottom:20px;"><div class="bucket-hdr" style="background:${b.bg};border-left:3px solid ${b.border};"><span class="bucket-lbl" style="color:${b.color};">${b.label}</span><span class="bucket-cnt" style="background:${b.border};color:${b.color};">${bt.length}</span></div>${catHTML}</div>`;
+  });
+  if(done.length){html+=`<div class="sec"><div class="sec-hdr"><div class="sec-title">Completed</div><div class="sec-line"></div><div class="sec-cnt">${done.length}</div></div>${done.map(taskRow).join('')}</div>`;}
+  if(!html)html='<div class="empty">No tasks here.</div>';
+  document.getElementById('task-area').innerHTML=html;
+}
+
+function taskRow(t){
+  const tag=t.tag==='urgent'?'<span class="tag t-urgent">Urgent</span>':'<span class="tag t-pending">Pending</span>';
+  const date=t.date?`<span class="task-date">${t.date}</span>`:'';
+  return`<div class="task-row${t.done?' done-row':''}" onclick="openTaskModal('${t.id}')"><div class="check${t.done?' checked':''}" onclick="event.stopPropagation();toggleTask('${t.id}')"></div><div class="task-body"><div class="task-text${t.done?' struck':''}">${escapeHTML(t.text)}</div><div class="task-meta">${t.done?'':tag}${date}</div></div></div>`;
+}
+
+// ── EXPENSES ──────────────────────────────────────────────────
+function renderExpenses(resultsOnly){
+  const data=activeExpSec==='lithonia'?lithonia:expenses;
+  const label=activeExpSec==='lithonia'?'Lithonia, GA':'Pembroke Pines, FL';
+
+  if(!resultsOnly){
+    // Render header + filter bar + add form (static shell — only on tab switch)
+    const catOpts='<option value="">All categories</option>'+EXP_CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
+    const ctrl=document.getElementById('exp-controls');
+    ctrl.style.display='block';
+    ctrl.innerHTML=`
+      <div class="exp-hdr">
+        <div>
+          <div class="exp-total-lbl">Total spent · ${label}</div>
+          <div class="exp-total-num" id="exp-total-num">$0.00</div>
+          <div class="exp-total-sub" id="exp-total-sub"></div>
+        </div>
+        <div class="action-bar">
+          <button class="btn btn-dark" onclick="showAddExpForm()">+ Add expense</button>
+          <button class="btn btn-green" onclick="exportExcel()">↓ Export Excel</button>
+          <button class="btn btn-blue" onclick="generateReport()">📄 Report</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="exp-search-input" class="filter-sel" placeholder="🔍 Search store or description…" style="min-width:220px;" oninput="window.setExpSearch(this.value)">
+        <select id="exp-cat-select" class="filter-sel" onchange="window.setExpCat(this.value)">
+          ${catOpts}
+        </select>
+        <span class="filter-lbl">Month</span>
+        <input type="month" id="exp-month-input" class="filter-sel" onchange="window.setExpMonth(this.value)">
+        <button id="exp-clear-btn" class="filter-clear" style="display:none;" onclick="window.clearExpFilters()">✕ Clear</button>
+      </div>
+      <div id="exp-add-form" class="exp-form" style="display:none;">
+        <div class="exp-form-title">New expense</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div><label class="field-lbl">Store</label><input class="field-inp" id="ef-store" placeholder="e.g. Walmart" style="width:100%;"></div>
+          <div><label class="field-lbl">Amount ($)</label><input class="field-inp" id="ef-amt" type="number" step="0.01" placeholder="0.00" style="width:100%;"></div>
+        </div>
+        <div style="margin-bottom:10px;"><label class="field-lbl">Description</label><input class="field-inp" id="ef-item" placeholder="What did you buy?" style="width:100%;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div><label class="field-lbl">Card</label>
+            <select class="field-inp" id="ef-card" style="width:100%;"><option>Truist Debit</option><option>American Express</option><option>Chase Mastercard</option><option>Other</option></select>
+          </div>
+          <div><label class="field-lbl">Category</label>
+            <select class="field-inp" id="ef-cat" style="width:100%;">${EXP_CATS.map(c=>`<option>${c}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+          <div><label class="field-lbl">Date</label><input class="field-inp" id="ef-date" type="date" value="${todayISO()}" style="width:100%;"></div>
+          <div><label class="field-lbl">Location</label><input class="field-inp" id="ef-loc" placeholder="City, State" style="width:100%;"></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn-cancel" onclick="document.getElementById('exp-add-form').style.display='none'">Cancel</button>
+          <button class="btn-save" onclick="submitExpForm()">Save</button>
+        </div>
+      </div>`;
+    syncExpFilterUI();
+  }
+  renderExpResults();
+}
+
+function syncExpFilterUI(){
+  const si=document.getElementById('exp-search-input');
+  const cs=document.getElementById('exp-cat-select');
+  const mi=document.getElementById('exp-month-input');
+  const cb=document.getElementById('exp-clear-btn');
+  if(si)si.value=expSearchFilter;
+  if(cs)cs.value=expCatFilter;
+  if(mi)mi.value=expMonthFilter;
+  if(cb)cb.style.display=(expCatFilter||expMonthFilter||expSearchFilter)?'inline-flex':'none';
+}
+
+window.applyExpFilters=function(){
+  syncExpFilterUI();
+  renderExpResults();
+};
+
+window.setExpSearch=function(v){expSearchFilter=v;window.applyExpFilters();};
+window.setExpCat=function(v){expCatFilter=v;window.applyExpFilters();};
+window.setExpMonth=function(v){expMonthFilter=v;window.applyExpFilters();};
+window.clearExpFilters=function(){expCatFilter='';expMonthFilter='';expSearchFilter='';syncExpFilterUI();renderExpResults();};
+
+function renderExpResults(){
+  const data=activeExpSec==='lithonia'?lithonia:expenses;
+  const filtered=getFiltered(data);
+  const total=filtered.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const tn=document.getElementById('exp-total-num');
+  const ts=document.getElementById('exp-total-sub');
+  if(tn)tn.textContent='$'+total.toFixed(2);
+  if(ts)ts.textContent=filtered.length+' expense'+(filtered.length!==1?'s':'')+(expCatFilter||expMonthFilter||expSearchFilter?' (filtered)':'');
+  let html='';
+  if(filtered.length===0){html='<div class="empty">No expenses match your filters.</div>';}
+  else{html=filtered.sort((a,b)=>(b.addedAt||0)-(a.addedAt||0)).map(expCard).join('');}
+  document.getElementById('task-area').innerHTML=html;
+}
+
+window.showAddExpForm=function(){const f=document.getElementById('exp-add-form');if(f)f.style.display=f.style.display==='none'?'block':'none';};
+
+function expCard(e){
+  const card=e.card?`<span class="exp-pill">💳 ${e.card}</span>`:'';
+  const cat=e.category?`<span class="exp-pill">${e.category}</span>`:'';
+  const loc=e.location?`<span class="exp-pill">📍 ${escapeHTML(e.location)}</span>`:'';
+  const date=e.date?`<span class="exp-pill">📅 ${fmtDate(e.date)}</span>`:'';
+  return`<div class="exp-card" onclick="openExpModal('${e.id}')"><div class="exp-top"><div><div class="exp-store">${escapeHTML(e.store||'Unknown')}</div><div class="exp-desc">${escapeHTML(e.item||'')}</div></div><div class="exp-amt">$${parseFloat(e.amount||0).toFixed(2)}</div></div><div class="exp-meta">${card}${cat}${loc}${date}<button class="exp-del" onclick="event.stopPropagation();quickDel('${e.id}')">✕</button></div></div>`;
+}
+
+// ── TASK CRUD ─────────────────────────────────────────────────
+window.toggleTask=async function(id){
+  const t=tasks.find(x=>x.id===id);if(!t)return;
+  if(firebaseReady)await updateDoc(doc(db,'tasks',id),{done:!t.done});
+  else{t.done=!t.done;saveLocal();render();}
+};
+window.openTaskModal=function(id){
+  const t=tasks.find(x=>x.id===id);if(!t)return;
+  editingTaskId=id;
+  document.getElementById('tm-text').value=t.text||'';
+  document.getElementById('tm-cat').value=t.cat||'personal';
+  document.getElementById('tm-tag').value=t.tag||'pending';
+  document.getElementById('tm-date').value=dateToISO(t.date||'');
+  document.getElementById('task-modal').classList.add('open');
+};
+window.closeTaskModal=function(){document.getElementById('task-modal').classList.remove('open');editingTaskId=null;};
+window.saveTask=async function(){
+  const text=document.getElementById('tm-text').value.trim();
+  const cat=document.getElementById('tm-cat').value;
+  const tag=document.getElementById('tm-tag').value;
+  const date=isoToDisplay(document.getElementById('tm-date').value);
+  if(firebaseReady)await updateDoc(doc(db,'tasks',editingTaskId),{text,cat,tag,date});
+  else{const t=tasks.find(x=>x.id===editingTaskId);if(t)Object.assign(t,{text,cat,tag,date});saveLocal();render();}
+  closeTaskModal();
+};
+window.deleteTask=async function(){
+  if(!confirm('Delete this task?'))return;
+  if(firebaseReady)await deleteDoc(doc(db,'tasks',editingTaskId));
+  else{tasks=tasks.filter(x=>x.id!==editingTaskId);saveLocal();render();}
+  closeTaskModal();
+};
+window.markDone=async function(){
+  if(firebaseReady)await updateDoc(doc(db,'tasks',editingTaskId),{done:true});
+  else{const t=tasks.find(x=>x.id===editingTaskId);if(t)t.done=true;saveLocal();render();}
+  closeTaskModal();
+};
+window.openAddTask=function(){
+  const valid=['vehicles','nila','florida','property','legal','personal'];
+  document.getElementById('at-cat').value=valid.includes(activeTaskCat)?activeTaskCat:'personal';
+  document.getElementById('at-text').value='';document.getElementById('at-tag').value='pending';document.getElementById('at-date').value='';
+  document.getElementById('add-task-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('at-text').focus(),100);
+};
+window.closeAddTask=function(){document.getElementById('add-task-modal').classList.remove('open');};
+window.submitTask=async function(){
+  const text=document.getElementById('at-text').value.trim();if(!text)return;
+  const cat=document.getElementById('at-cat').value;
+  const tag=document.getElementById('at-tag').value;
+  const date=isoToDisplay(document.getElementById('at-date').value);
+  const t={text,cat,tag,date,done:false,createdAt:Date.now()};
+  if(firebaseReady)await addDoc(tasksCol,t);
+  else{tasks.push({...t,id:String(Date.now())});saveLocal();render();}
+  closeAddTask();
+};
+
+// ── EXPENSE CRUD ──────────────────────────────────────────────
+function getCol(){return activeExpSec==='lithonia'?litCol:expCol;}
+function getArr(){return activeExpSec==='lithonia'?lithonia:expenses;}
+function getColName(){return activeExpSec==='lithonia'?'lithonia':'expenses';}
+
+window.openExpModal=function(id){
+  const arr=getArr();const e=arr.find(x=>x.id===id);if(!e)return;
+  editingExpId=id;
+  document.getElementById('em-store').value=e.store||'';document.getElementById('em-item').value=e.item||'';
+  document.getElementById('em-amount').value=e.amount||'';document.getElementById('em-card').value=e.card||'Truist Debit';
+  document.getElementById('em-cat').value=e.category||'Other';document.getElementById('em-date').value=e.date||'';
+  document.getElementById('em-location').value=e.location||'';
+  document.getElementById('exp-modal').classList.add('open');
+};
+window.closeExpModal=function(){document.getElementById('exp-modal').classList.remove('open');editingExpId=null;};
+window.saveExpense=async function(){
+  const u={store:document.getElementById('em-store').value.trim(),item:document.getElementById('em-item').value.trim(),amount:parseFloat(document.getElementById('em-amount').value)||0,card:document.getElementById('em-card').value,category:document.getElementById('em-cat').value,date:document.getElementById('em-date').value,location:document.getElementById('em-location').value.trim()};
+  if(firebaseReady)await updateDoc(doc(db,getColName(),editingExpId),u);
+  else{const e=getArr().find(x=>x.id===editingExpId);if(e)Object.assign(e,u);saveLocal();renderExpenses();}
+  closeExpModal();
+};
+window.deleteExpense=async function(){
+  if(!confirm('Delete this expense?'))return;
+  if(firebaseReady)await deleteDoc(doc(db,getColName(),editingExpId));
+  else{if(activeExpSec==='lithonia')lithonia=lithonia.filter(x=>x.id!==editingExpId);else expenses=expenses.filter(x=>x.id!==editingExpId);saveLocal();renderExpenses();}
+  closeExpModal();
+};
+window.quickDel=async function(id){
+  if(!confirm('Delete?'))return;
+  if(firebaseReady)await deleteDoc(doc(db,getColName(),id));
+  else{if(activeExpSec==='lithonia')lithonia=lithonia.filter(x=>x.id!==id);else expenses=expenses.filter(x=>x.id!==id);saveLocal();renderExpenses();}
+};
+window.submitExpForm=async function(){
+  const store=document.getElementById('ef-store').value.trim();
+  const amount=parseFloat(document.getElementById('ef-amt').value)||0;
+  if(!store&&!amount)return;
+  const e={store,amount,item:document.getElementById('ef-item').value.trim(),card:document.getElementById('ef-card').value,category:document.getElementById('ef-cat').value,date:document.getElementById('ef-date').value,location:document.getElementById('ef-loc').value.trim(),addedAt:Date.now()};
+  if(firebaseReady)await addDoc(getCol(),e);
+  else{const arr=getArr();arr.push({...e,id:String(Date.now())});saveLocal();renderExpenses();}
+  document.getElementById('exp-add-form').style.display='none';
+};
+
+// ── EXPORT ────────────────────────────────────────────────────
+window.exportExcel=function(){
+  const data=getFiltered(getArr());
+  const label=activeExpSec==='lithonia'?'Lithonia':'Florida';
+  if(!data.length){alert('No expenses to export.');return;}
+  const h=['Date','Store','Description','Amount','Category','Card','Location'];
+  const rows=[...data].sort((a,b)=>(a.addedAt||0)-(b.addedAt||0)).map(e=>[e.date||'',e.store||'',e.item||'',parseFloat(e.amount||0).toFixed(2),e.category||'',e.card||'',e.location||'']);
+  rows.push(['','','TOTAL',data.reduce((s,e)=>s+(parseFloat(e.amount)||0),0).toFixed(2),'','','']);
+  const csv=[h,...rows].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=label.replace(/\s+/g,'_')+'_Expenses_'+todayISO()+'.csv';a.click();
+  URL.revokeObjectURL(url);
+};
+
+window.generateReport=function(){
+  const data=getFiltered(getArr());
+  const label=activeExpSec==='lithonia'?'Lithonia, GA':'Pembroke Pines, FL';
+  const title=activeExpSec==='lithonia'?'Lithonia Expenses Report':'Florida Expenses Report';
+  const total=data.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
+  const dateStr=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const filterParts=[];
+  if(expCatFilter)filterParts.push('Category: '+expCatFilter);
+  if(expMonthFilter){const[fy,fm]=expMonthFilter.split('-');filterParts.push('Month: '+MN[parseInt(fm)-1]+' '+fy);}
+  if(expSearchFilter)filterParts.push('Search: "'+expSearchFilter+'"');
+  const filterNote=filterParts.length?filterParts.join(' · '):'All expenses';
+  const filterBadge=filterParts.length?`<div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;">${filterParts.map(f=>`<span style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px;border-radius:20px;background:rgba(184,151,106,.15);color:#b8976a;border:1px solid rgba(184,151,106,.3);">${f}</span>`).join('')}</div>`:'';
+  // Unique categories in this dataset
+  const cats=[...new Set(data.map(e=>e.category||'Other'))].sort();
+  const catOptsHtml='<option value="">All categories</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  // Embed data as JSON for client-side filtering in report
+  const jsonData=JSON.stringify(data.map(e=>({date:e.date||'',store:e.store||'',item:e.item||'',card:e.card||'',category:e.category||'Other',amount:parseFloat(e.amount||0)})));
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><link href="https://fonts.bunny.net/css?family=cormorant-garamond:300,400,500,600|montserrat:300,400,500,600,700" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Montserrat,sans-serif;background:#f5f2ec;}.topbar{background:#0d0c0a;padding:0 32px;height:52px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(184,151,106,.2);position:sticky;top:0;z-index:10;}.back-btn{background:none;border:1px solid rgba(184,151,106,.35);border-radius:1px;color:#b8976a;font-family:Montserrat,sans-serif;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:8px 16px;cursor:pointer;}.back-btn:hover{background:rgba(184,151,106,.08);}.print-btn{background:#b8976a;border:none;border-radius:1px;color:#0d0c0a;font-family:Montserrat,sans-serif;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:8px 16px;cursor:pointer;}.print-btn:hover{background:#d4b483;}.topbar-title{font-family:'Cormorant Garamond',serif;font-size:13px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:#b8976a;}.cover{background:#1a1917;color:#fff;padding:48px 56px;border-bottom:3px solid #b8976a;}.cl{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:#b8976a;margin-bottom:8px;}.ct{font-family:'Cormorant Garamond',serif;font-size:36px;font-weight:300;margin-bottom:4px;}.cs{font-size:12px;color:rgba(255,255,255,.4);}.meta{margin-top:24px;display:flex;gap:48px;flex-wrap:wrap;}.ml{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:rgba(255,255,255,.3);margin-bottom:4px;}.mv{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:300;color:#b8976a;}.ms{font-size:10px;color:rgba(255,255,255,.3);margin-top:2px;}.rfilter{background:#fff;border-bottom:1px solid #ddd8cc;padding:14px 56px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}.rfilter input,.rfilter select{font-family:Montserrat,sans-serif;font-size:12px;color:#1c1a16;background:#f5f2ec;border:1px solid #ddd8cc;border-radius:1px;padding:8px 12px;outline:none;}.rfilter input{min-width:240px;}.rfilter input:focus,.rfilter select:focus{border-color:#b8976a;}.rfilter-lbl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#9a9488;white-space:nowrap;}.rclear{font-family:Montserrat,sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;border-radius:1px;border:1px solid #e8c0c0;background:#fdf0f0;color:#8b2020;cursor:pointer;display:none;}.body{padding:40px 56px;}table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,.06);}thead tr{background:#f0ede8;}thead th{padding:10px 16px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#9a9488;text-align:left;}thead th:last-child{text-align:right;}.cat-row td{padding:10px 16px;font-family:Montserrat,sans-serif;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8976a;background:#1a1917;}.cat-row td:last-child{text-align:right;}.data-row td{padding:8px 16px;border-bottom:1px solid #e8e5e0;}.data-row td:last-child{text-align:right;font-size:13px;font-weight:600;color:#1a4a2a;}.total-row td{padding:14px 16px;font-family:Montserrat,sans-serif;font-size:13px;font-weight:700;background:#f0ede8;border-top:2px solid #ddd8cc;}.total-row td:last-child{text-align:right;color:#1a4a2a;font-size:16px;}.empty-msg{text-align:center;padding:28px;color:#9a9488;font-size:13px;}.stats{font-family:'DM Mono',monospace;font-size:11px;color:#9a9488;margin-bottom:16px;}.footer{text-align:center;padding:28px;font-size:10px;color:#9a9488;letter-spacing:.08em;}@media print{.topbar,.rfilter{display:none;}body{background:#fff;}.cover{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}</style></head><body>
+<div class="topbar"><button class="back-btn" onclick="window.close()">← Back</button><span class="topbar-title">Expense Report</span><button class="print-btn" onclick="window.print()">🖨 Print</button></div>
+<div class="cover"><div class="cl">Expense Report</div><div class="ct">${title}</div><div class="cs">${label} · ${dateStr}</div>${filterBadge}<div class="meta"><div><div class="ml">Base data</div><div class="mv" id="cov-total">$${total.toFixed(2)}</div><div class="ms" id="cov-count">${data.length} expenses</div></div><div><div class="ml">Filter applied</div><div class="ms" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px;max-width:220px;">${filterNote}</div></div></div></div>
+<div class="rfilter">
+  <span class="rfilter-lbl">Search</span>
+  <input type="text" id="r-search" placeholder="🔍 Store or description…" oninput="applyReportFilters()">
+  <span class="rfilter-lbl">Category</span>
+  <select id="r-cat" onchange="applyReportFilters()"><optgroup label="">${catOptsHtml}</optgroup></select>
+  <button class="rclear" id="r-clear" onclick="document.getElementById('r-search').value='';document.getElementById('r-cat').value='';applyReportFilters()">✕ Clear</button>
+</div>
+<div class="body"><div class="stats" id="r-stats"></div><table><thead><tr><th>Date</th><th>Store</th><th>Description</th><th>Card</th><th style="text-align:right;">Amount</th></tr></thead><tbody id="r-tbody"></tbody></table></div>
+<div class="footer">COMMAND CENTER · REYNALD LAURENT · ${dateStr}</div>
+<script>
+var ALL=${jsonData};
+function fmt(s){if(!s)return'—';var p=s.split('-');return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1])-1]+' '+parseInt(p[2])+', '+p[0];}
+function applyReportFilters(){
+  var q=(document.getElementById('r-search').value||'').toLowerCase();
+  var cat=document.getElementById('r-cat').value;
+  var clearBtn=document.getElementById('r-clear');
+  clearBtn.style.display=(q||cat)?'inline-block':'none';
+  var filtered=ALL.filter(function(e){
+    if(cat&&e.category!==cat)return false;
+    if(q){var h=(e.store+' '+e.item).toLowerCase();if(h.indexOf(q)<0)return false;}
+    return true;
+  });
+  var byCat={};
+  filtered.forEach(function(e){var c=e.category||'Other';if(!byCat[c])byCat[c]=[];byCat[c].push(e);});
+  var sortedCats=Object.keys(byCat).sort(function(a,b){
+    var ta=byCat[a].reduce(function(s,e){return s+e.amount;},0);
+    var tb=byCat[b].reduce(function(s,e){return s+e.amount;},0);
+    return tb-ta;
+  });
+  var rows='';
+  sortedCats.forEach(function(c){
+    var items=byCat[c];
+    var ct=items.reduce(function(s,e){return s+e.amount;},0);
+    rows+='<tr class="cat-row"><td colspan="4">'+c+'</td><td>$'+ct.toFixed(2)+'</td></tr>';
+    items.forEach(function(e){
+      rows+='<tr class="data-row"><td style="font-size:12px;color:#5a5649;">'+fmt(e.date)+'</td><td style="font-size:13px;font-weight:600;color:#1c1a16;">'+e.store+'</td><td style="font-size:12px;color:#5a5649;">'+e.item+'</td><td style="font-size:11px;color:#9a9488;">'+e.card+'</td><td>$'+e.amount.toFixed(2)+'</td></tr>';
+    });
+  });
+  var grandTotal=filtered.reduce(function(s,e){return s+e.amount;},0);
+  if(filtered.length>0){rows+='<tr class="total-row"><td colspan="4">TOTAL</td><td>$'+grandTotal.toFixed(2)+'</td></tr>';}
+  else{rows='<tr><td colspan="5" class="empty-msg">No expenses match your filters.</td></tr>';}
+  document.getElementById('r-tbody').innerHTML=rows;
+  document.getElementById('r-stats').textContent=filtered.length+' expense'+(filtered.length!==1?'s':'')+' · $'+grandTotal.toFixed(2)+' total'+(q||cat?' (filtered)':'');
+}
+applyReportFilters();
+<\/script>
+</body></html>`;
+  const win=window.open('','_blank');
+  if(win){win.document.write(html);win.document.close();win.focus();}
+  else alert('Please allow popups to view the report.');
+};
+
+// ── DRAWER ────────────────────────────────────────────────────
+window.openDrawer=function(){document.getElementById('drawer').classList.add('open');document.getElementById('drawer-overlay').classList.add('open');};
+window.closeDrawer=function(){document.getElementById('drawer').classList.remove('open');document.getElementById('drawer-overlay').classList.remove('open');};
+
+// Close overlays on backdrop click
+document.addEventListener('click',e=>{
+  if(e.target.id==='task-modal')window.closeTaskModal();
+  if(e.target.id==='add-task-modal')window.closeAddTask();
+  if(e.target.id==='exp-modal')window.closeExpModal();
+});
+
+// ── SEED DATA ─────────────────────────────────────────────────
+const TASK_SEED=[
+  {text:'Pick up Enterprise rental car',cat:'vehicles',tag:'urgent',date:'May 8',done:false,createdAt:1},
+  {text:'Pick up U-Haul',cat:'vehicles',tag:'urgent',date:'May 9',done:false,createdAt:2},
+  {text:'Check status of Mercedes-Benz repair',cat:'vehicles',tag:'pending',date:'',done:false,createdAt:3},
+  {text:'Find out estimated completion date for Mercedes-Benz',cat:'vehicles',tag:'pending',date:'',done:false,createdAt:4},
+  {text:'Follow up with Costa Rica agent — Nissan Qashqai insurance',cat:'vehicles',tag:'pending',date:'',done:false,createdAt:5},
+  {text:'Fix pricing with Dr. Harris',cat:'nila',tag:'urgent',date:'',done:false,createdAt:6},
+  {text:'Send updated pricing to Dr. Harris for confirmation',cat:'nila',tag:'pending',date:'',done:false,createdAt:7},
+  {text:'Add another Nación Nila location / entity',cat:'nila',tag:'pending',date:'',done:false,createdAt:8},
+  {text:'Add Uplon as a payment method',cat:'nila',tag:'pending',date:'',done:false,createdAt:9},
+  {text:'Add Simpli to Jackie',cat:'nila',tag:'pending',date:'',done:false,createdAt:10},
+  {text:'Get appraisal completed — Lithonia property',cat:'property',tag:'pending',date:'',done:false,createdAt:11},
+  {text:'Buy inflatable bed',cat:'florida',tag:'pending',date:'',done:false,createdAt:12},
+  {text:'Buy sheets, pillows, comforter',cat:'florida',tag:'pending',date:'May 11',done:false,createdAt:13},
+  {text:'Buy TV + TV stand',cat:'florida',tag:'pending',date:'',done:false,createdAt:14},
+  {text:'Buy work desk and office chair',cat:'florida',tag:'pending',date:'',done:false,createdAt:15},
+  {text:'Buy pots and pans',cat:'florida',tag:'pending',date:'May 11',done:false,createdAt:16},
+  {text:'Grocery shopping / market run',cat:'florida',tag:'pending',date:'May 11',done:false,createdAt:17},
+  {text:'Get supporting statements for McDonough property purchase (divorce)',cat:'legal',tag:'pending',date:'',done:false,createdAt:18},
+  {text:'Get supporting statements for Costa Rica (divorce)',cat:'legal',tag:'pending',date:'',done:false,createdAt:19},
+  {text:'Prepare cleaner version of expenses during separation',cat:'legal',tag:'pending',date:'',done:false,createdAt:20},
+  {text:'Job interview — evaluate: keep May 11 or move to May 12?',cat:'personal',tag:'urgent',date:'May 11',done:false,createdAt:21},
+];
+
+const LIT_SEED=[
+  {date:'2026-04-19',store:'Mileage',item:'Smyrna to Lithonia',amount:28,category:'Transportation',card:'Truist Debit',location:'Smyrna, GA',addedAt:1},
+  {date:'2026-04-19',store:'Mileage',item:'Lithonia to Smyrna',amount:28,category:'Transportation',card:'Truist Debit',location:'Lithonia, GA',addedAt:2},
+  {date:'2026-04-23',store:'Mileage',item:'Smyrna to Lithonia',amount:28,category:'Transportation',card:'Truist Debit',location:'Smyrna, GA',addedAt:3},
+  {date:'2026-04-23',store:'Mileage',item:'Lithonia to Smyrna',amount:28,category:'Transportation',card:'Truist Debit',location:'Lithonia, GA',addedAt:4},
+  {date:'2026-05-01',store:'Mileage',item:'Atlanta Airport to Lithonia',amount:28,category:'Transportation',card:'Truist Debit',location:'Atlanta, GA',addedAt:5},
+  {date:'2026-05-01',store:'Mileage',item:'Lithonia to Smyrna morning',amount:28,category:'Transportation',card:'Truist Debit',location:'Lithonia, GA',addedAt:6},
+  {date:'2026-05-01',store:'Mileage',item:'Smyrna to Lithonia afternoon',amount:28,category:'Transportation',card:'Truist Debit',location:'Smyrna, GA',addedAt:7},
+  {date:'2026-05-01',store:'Mileage',item:'Lithonia to Smyrna afternoon',amount:28,category:'Transportation',card:'Truist Debit',location:'Lithonia, GA',addedAt:8},
+  {date:'2026-04-01',store:'Gas Station',item:'Gas for Mercedes-Benz trips',amount:69.77,category:'Gas',card:'Truist Debit',location:'GA',addedAt:9},
+  {date:'2026-04-01',store:'Airport Parking',item:'Airport parking',amount:40,category:'Transportation',card:'Truist Debit',location:'Atlanta, GA',addedAt:10},
+  {date:'2026-04-01',store:'DeKalb County',item:'Water bill tenant never paid',amount:837.55,category:'Home Supplies',card:'Truist Debit',location:'Lithonia, GA',addedAt:11},
+  {date:'2026-05-01',store:'Home Depot',item:'Changing locks',amount:65.32,category:'Home Supplies',card:'Truist Debit',location:'Lithonia, GA',addedAt:12},
+  {date:'2026-05-01',store:'HOA',item:'HOA fees May 2026',amount:200,category:'Other',card:'Truist Debit',location:'Lithonia, GA',addedAt:13},
+];
+
+const FL_SEED=[
+  {date:'2026-04-29',store:'Frontier Airlines',item:'Flight ATL to FLL',amount:88.98,category:'Transportation',card:'Truist Debit',location:'Atlanta, GA',addedAt:1},
+  {date:'2026-05-01',store:'Frontier Airlines',item:'Flight FLL to ATL',amount:93.20,category:'Transportation',card:'Truist Debit',location:'Fort Lauderdale, FL',addedAt:2},
+  {date:'2026-04-29',store:'Nu Car Rental',item:'Rental car Apr 29 to May 1',amount:96.28,category:'Transportation',card:'Truist Debit',location:'Fort Lauderdale, FL',addedAt:3},
+  {date:'2026-04-29',store:'La Quinta Sunrise',item:'Hotel stay Sunrise FL',amount:202.32,category:'Hotel/Lodging',card:'Truist Debit',location:'Sunrise, FL',addedAt:4},
+  {date:'2026-04-01',store:'ADT',item:'Home security alarm system',amount:298.31,category:'Home Supplies',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:5},
+  {date:'2026-04-01',store:'Gas Station',item:'Gas for rental car',amount:20.18,category:'Gas',card:'Truist Debit',location:'FL',addedAt:6},
+  {date:'2026-05-01',store:'Uber',item:'Uber to airport',amount:9.94,category:'Transportation',card:'Truist Debit',location:'Fort Lauderdale, FL',addedAt:7},
+  {date:'2026-04-29',store:'Mileage',item:'FLL airport to Pembroke Pines',amount:21,category:'Transportation',card:'Truist Debit',location:'Fort Lauderdale, FL',addedAt:8},
+  {date:'2026-04-29',store:'Mileage',item:'Pembroke Pines to La Quinta',amount:21,category:'Transportation',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:9},
+  {date:'2026-04-29',store:'Mileage',item:'Pembroke Pines to Home Depot Miramar',amount:2.80,category:'Transportation',card:'Truist Debit',location:'Miramar, FL',addedAt:10},
+  {date:'2026-04-30',store:'Mileage',item:'Pembroke Pines to Walmart',amount:0.70,category:'Transportation',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:11},
+  {date:'2026-04-30',store:'Mileage',item:'Pembroke Pines to Home Depot second',amount:2.80,category:'Transportation',card:'Truist Debit',location:'Miramar, FL',addedAt:12},
+  {date:'2026-04-30',store:'Mileage',item:'Pembroke Pines to La Quinta second',amount:21,category:'Transportation',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:13},
+  {date:'2026-04-01',store:'Home Depot',item:'New door locks front',amount:48.12,category:'Home Supplies',card:'Truist Debit',location:'Miramar, FL',addedAt:14},
+  {date:'2026-04-01',store:'Walmart',item:'Garage door locks',amount:32.06,category:'Home Supplies',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:15},
+  {date:'2026-04-01',store:'Silver Lakes HOA',item:'HOA Silver Lakes 2026',amount:62,category:'Other',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:16},
+  {date:'2026-04-01',store:'Tiffany Cove HOA',item:'HOA Tiffany Cove 2026',amount:6,category:'Other',card:'Truist Debit',location:'Pembroke Pines, FL',addedAt:17},
+  {date:'2026-05-09',store:'Quick Trip',item:'Gas',amount:92.28,category:'Gas',card:'Truist Debit',location:'Smyrna, GA',addedAt:18},
+  {date:'2026-05-09',store:'Uhaul',item:'Uhaul rental Smyrna to Pembroke Pines',amount:710.41,category:'Transportation',card:'American Express',location:'Smyrna to Pembroke Pines',addedAt:19},
+];
+</script>
 </body>
 </html>
