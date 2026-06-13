@@ -901,60 +901,76 @@ const REGULAR_BILLS=[
 ];
 
 const YEARLY_BILLS=[
-  {key:'pbp-hoa-sl-jan',short:'Pembroke Pines HOA (SilverLakes)',property:'Pembroke Pines',month:1,day:1,amount:608},
-  {key:'pbp-hoa-tc-jan',short:'Pembroke Pines HOA (Tiffany Cove)',property:'Pembroke Pines',month:1,day:1,amount:106},
-  {key:'ciudad-home-ins',short:'Ciudad Colon Home Insurance',property:'Ciudad Colon',month:1,day:25,amount:560.06},
-  {key:'ciudad-prop-tax',short:'Ciudad Colon Property Taxes',property:'Ciudad Colon',month:1,day:5,amount:666.24},
-  {key:'nila-juridica',short:'Nila Impuesto Persona Juridica',property:'Nila',month:1,day:31,amount:230},
+  // ── Pembroke Pines ──────────────────────────────────────────
+  // HOA SilverLakes: due Jan 1, Apr 15, Jul 1, Oct 1
+  {key:'pbp-hoa-sl',short:'Pembroke Pines HOA (SilverLakes)',property:'Pembroke Pines',
+   multiMonths:{1:{day:1,amount:608},4:{day:15,amount:608},7:{day:1,amount:null},10:{day:1,amount:null}},
+   dueLabel:'Jan 1, Apr 15, Jul 1, Oct 1',btype:'multi-yearly'},
+  // HOA Tiffany Cove: due Jan 1, Apr 1, Jul 1, Oct 1
+  {key:'pbp-hoa-tc',short:'Pembroke Pines HOA (Tiffany Cove)',property:'Pembroke Pines',
+   multiMonths:{1:{day:1,amount:106},4:{day:1,amount:106},7:{day:1,amount:null},10:{day:1,amount:null}},
+   dueLabel:'Jan 1, Apr 1, Jul 1, Oct 1',btype:'multi-yearly'},
+  {key:'pbp-home-ins',short:'Pembroke Pines Home Insurance',property:'Pembroke Pines',month:10,day:1,amount:null},
+  {key:'pbp-prop-tax',short:'Pembroke Pines Property Taxes',property:'Pembroke Pines',month:11,day:29,amount:null},
+  // ── Hampton ─────────────────────────────────────────────────
   {key:'hampton-hoa',short:'Hampton HOA',property:'Hampton',month:2,day:2,amount:319.92},
   {key:'hampton-home-ins',short:'Hampton Home Insurance (Travelers)',property:'Hampton',month:2,day:13,amount:1763},
-  {key:'hampton-cars-ins-feb',short:'Hampton Cars Insurance (Travelers)',property:'Hampton',month:2,day:19,amount:2045},
+  // Cars Insurance: due Feb 19 + Aug 19
+  {key:'hampton-cars-ins',short:'Hampton Cars Insurance (Travelers)',property:'Hampton',
+   multiMonths:{2:{day:19,amount:2045},8:{day:19,amount:null}},
+   dueLabel:'Feb 19, Aug 19',btype:'multi-yearly'},
+  // GFL Environment: due Mar 2, Jun 2, Sep 2, Dec 2
+  {key:'hampton-gfl',short:'Hampton GFL Environment',property:'Hampton',
+   multiMonths:{3:{day:2,amount:110.77},6:{day:2,amount:110.77},9:{day:2,amount:null},12:{day:2,amount:null}},
+   dueLabel:'Mar 2, Jun 2, Sep 2, Dec 2',btype:'multi-yearly'},
+  {key:'hampton-prop-tax',short:'Hampton Property Tax',property:'Hampton',month:11,day:1,amount:null},
+  {key:'hampton-ring',short:'Hampton Ring Monitoring',property:'Hampton',month:10,day:1,amount:null},
+  {key:'pmp-renewal',short:'PMP Renewal',property:'Hampton',month:11,day:30,amount:null},
+  // ── Lithonia ─────────────────────────────────────────────────
   {key:'lithonia-reg',short:'Lithonia Annual Registration GA',property:'Lithonia',month:2,day:15,amount:50},
+  {key:'lithonia-home-ins',short:'Lithonia Home Insurance',property:'Lithonia',month:8,day:24,amount:null},
+  {key:'lithonia-tax-1',short:'Lithonia Property Taxes 1st installment',property:'Lithonia',month:9,day:30,amount:null},
+  {key:'lithonia-tax-2',short:'Lithonia Property Taxes 2nd installment',property:'Lithonia',month:10,day:17,amount:null},
+  // ── McDonough ────────────────────────────────────────────────
   {key:'mcdonough-lease',short:'McDonough Lease Renewal',property:'McDonough',month:3,day:20,amount:null},
-  {key:'hampton-gfl-mar',short:'Hampton GFL Environment',property:'Hampton',month:3,day:2,amount:110.77},
-  {key:'pbp-hoa-sl-apr',short:'Pembroke Pines HOA (SilverLakes)',property:'Pembroke Pines',month:4,day:15,amount:608},
-  {key:'pbp-hoa-tc-apr',short:'Pembroke Pines HOA (Tiffany Cove)',property:'Pembroke Pines',month:4,day:1,amount:106},
-  {key:'ciudad-rtv',short:'Ciudad Colon RTV',property:'Ciudad Colon',month:4,day:1,amount:14.92},
   {key:'mcdonough-hoa',short:'McDonough HOA',property:'McDonough',month:4,day:17,amount:454.50},
+  {key:'mcdonough-home-ins',short:'McDonough Home Insurance (Travelers)',property:'McDonough',month:10,day:30,amount:null},
+  {key:'mcdonough-tax',short:'McDonough Property Taxes',property:'McDonough',month:11,day:15,amount:null},
+  // ── Nila ─────────────────────────────────────────────────────
+  {key:'nila-juridica',short:'Nila Impuesto Persona Juridica',property:'Nila',month:1,day:31,amount:230},
   {key:'nila-rtbf',short:'Nila Declaracion RTBF',property:'Nila',month:4,day:30,amount:334.92},
   {key:'nila-gti',short:'Nila GTI Facturacion',property:'Nila',month:4,day:21,amount:51.29},
   {key:'nila-patente',short:'Nila Patente Tax Declaration',property:'Nila',month:4,day:30,amount:null},
-  {key:'ciudad-car-ins',short:'Ciudad Colon Car Insurance',property:'Ciudad Colon',month:5,day:1,amount:609.69},
-  {key:'hampton-ring-may',short:'Hampton Ring Monitoring',property:'Hampton',month:5,day:21,amount:null},
-  {key:'hampton-gfl-jun',short:'Hampton GFL Environment',property:'Hampton',month:6,day:2,amount:110.77},
-  {key:'pbp-hoa-sl-jul',short:'Pembroke Pines HOA (SilverLakes)',property:'Pembroke Pines',month:7,day:1,amount:null},
-  {key:'pbp-hoa-tc-jul',short:'Pembroke Pines HOA (Tiffany Cove)',property:'Pembroke Pines',month:7,day:1,amount:null},
-  {key:'ciudad-music',short:'Ciudad Municipalidad Music Payment',property:'Ciudad Colon',month:7,day:31,amount:null},
-  {key:'lithonia-home-ins',short:'Lithonia Home Insurance',property:'Lithonia',month:8,day:24,amount:null},
-  {key:'hampton-cars-ins-aug',short:'Hampton Cars Insurance (Travelers)',property:'Hampton',month:8,day:19,amount:null},
-  {key:'haiti-sheila',short:'Haiti Lease Renewal (Sheila Dimanche)',property:'Haiti',month:9,day:1,amount:null},
-  {key:'haiti-marie',short:'Haiti Lease Renewal (Marie Carole Chery)',property:'Haiti',month:9,day:1,amount:null},
-  {key:'hampton-gfl-sep',short:'Hampton GFL Environment',property:'Hampton',month:9,day:2,amount:null},
-  {key:'lithonia-tax-1',short:'Lithonia Property Taxes 1st installment',property:'Lithonia',month:9,day:30,amount:null},
-  {key:'xfinity-adjust',short:'Xfinity Plan Adjustment',property:'Hampton',month:9,day:5,amount:null},
-  {key:'mcdonough-home-ins',short:'McDonough Home Insurance (Travelers)',property:'McDonough',month:10,day:30,amount:null},
-  {key:'lithonia-tax-2',short:'Lithonia Property Taxes 2nd installment',property:'Lithonia',month:10,day:17,amount:null},
-  {key:'pbp-hoa-sl-oct',short:'Pembroke Pines HOA (SilverLakes)',property:'Pembroke Pines',month:10,day:1,amount:null},
-  {key:'pbp-hoa-tc-oct',short:'Pembroke Pines HOA (Tiffany Cove)',property:'Pembroke Pines',month:10,day:1,amount:null},
-  {key:'pbp-home-ins',short:'Pembroke Pines Home Insurance',property:'Pembroke Pines',month:10,day:1,amount:null},
-  {key:'hampton-ring-oct',short:'Hampton Ring Monitoring (Nila & Torres)',property:'Hampton',month:10,day:1,amount:null},
-  {key:'mcdonough-tax',short:'McDonough Property Taxes',property:'McDonough',month:11,day:15,amount:null},
-  {key:'hampton-prop-tax',short:'Hampton Property Tax',property:'Hampton',month:11,day:1,amount:null},
-  {key:'pbp-prop-tax',short:'Pembroke Pines Property Taxes',property:'Pembroke Pines',month:11,day:29,amount:null},
-  {key:'dental',short:'Personal Dental Cleaning',property:'Personal',month:11,day:30,amount:null},
   {key:'nila-ins-renewal',short:'Nila Insurance Renewal (INS Riesgo)',property:'Nila',month:11,day:21,amount:null},
-  {key:'pmp-renewal',short:'PMP Renewal',property:'Hampton',month:11,day:30,amount:null},
+  // ── Ciudad Colon ─────────────────────────────────────────────
+  {key:'ciudad-home-ins',short:'Ciudad Colon Home Insurance',property:'Ciudad Colon',month:1,day:25,amount:560.06},
+  {key:'ciudad-prop-tax',short:'Ciudad Colon Property Taxes',property:'Ciudad Colon',month:1,day:5,amount:666.24},
+  {key:'ciudad-rtv',short:'Ciudad Colon RTV',property:'Ciudad Colon',month:4,day:1,amount:14.92},
+  {key:'ciudad-car-ins',short:'Ciudad Colon Car Insurance',property:'Ciudad Colon',month:5,day:1,amount:609.69},
+  {key:'ciudad-music',short:'Ciudad Municipalidad Music Payment',property:'Ciudad Colon',month:7,day:31,amount:null},
   {key:'hacienda-cr',short:'Hacienda Costa Rica',property:'Ciudad Colon',month:11,day:30,amount:null},
   {key:'ciudad-marchamo',short:'Ciudad Colon Marchamo',property:'Ciudad Colon',month:12,day:15,amount:null},
-  {key:'hampton-gfl-dec',short:'Hampton GFL Environment',property:'Hampton',month:12,day:2,amount:null},
+  // ── Haiti ────────────────────────────────────────────────────
+  {key:'haiti-sheila',short:'Haiti Lease Renewal (Sheila Dimanche)',property:'Haiti',month:9,day:1,amount:null},
+  {key:'haiti-marie',short:'Haiti Lease Renewal (Marie Carole Chery)',property:'Haiti',month:9,day:1,amount:null},
+  // ── Personal ─────────────────────────────────────────────────
+  {key:'dental',short:'Personal Dental Cleaning',property:'Personal',month:11,day:30,amount:null},
   {key:'eye-check',short:'Personal Eye Check',property:'Personal',month:12,day:31,amount:null},
-  {key:'mcdonough-tax-dec',short:'McDonough Property Taxes',property:'McDonough',month:12,day:1,amount:null},
 ];
 
 function getBillsDueThisMonth(month){
   const mi=month-1;
   const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined).map(b=>({...b,amount:b.amounts[mi],type:'regular'}));
-  const yearly=YEARLY_BILLS.filter(b=>b.month===month).map(b=>({...b,type:'yearly'}));
+  const yearly=YEARLY_BILLS.filter(b=>{
+    if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month] !== undefined;
+    return b.month===month;
+  }).map(b=>{
+    if(b.btype==='multi-yearly'){
+      const mm=b.multiMonths[month];
+      return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day,type:'yearly'};
+    }
+    return {...b,type:'yearly'};
+  });
   return [...regular,...yearly];
 }
 
@@ -1219,12 +1235,16 @@ window.generateBillsReport = function() {
     if (ov !== undefined) return ov;
     if (bill.btype === "regular") return bill.amounts[month - 1];
     if (bill.btype === "yearly") return bill.month === month ? bill.amount : undefined;
+    if (bill.btype === "multi-yearly") {
+      var mm = bill.multiMonths && bill.multiMonths[month];
+      return mm ? mm.amount : undefined;
+    }
     return undefined;
   }
 
   var allDefs = [].concat(
     REGULAR_BILLS.map(function(b){ return Object.assign({}, b, {btype:"regular"}); }),
-    YEARLY_BILLS.map(function(b){ return Object.assign({}, b, {btype:"yearly"}); })
+    YEARLY_BILLS.map(function(b){ return Object.assign({}, b); }) // btype already set
   );
 
   var rows = allDefs.map(function(b) {
@@ -1255,7 +1275,13 @@ window.generateBillsReport = function() {
   // Serialize rows for client
   var rj = JSON.stringify(rows.map(function(b) {
     var mo = {}; for (var k in b.months) mo[k] = b.months[k];
-    return {key:b.key, short:b.short, property:b.property, btype:b.btype, auto:b.auto, card:b.card||"", currency:b.currency||"", months:mo};
+    return {
+      key:b.key, short:b.short, property:b.property,
+      btype:b.btype || 'yearly',
+      auto:b.auto, card:b.card||'', currency:b.currency||'',
+      months:mo,
+      dueLabel:b.dueLabel || (b.btype==='yearly' && b.month ? (MN[b.month-1] + ' ' + b.day) : '')
+    };
   }));
 
   // Build page parts
@@ -1317,10 +1343,10 @@ window.generateBillsReport = function() {
     "function cell(b,m){",
     "  var a=b.months[m];var iF=m>CM;var iC=m===CM;",
     "  if(iF){if(a==null)return '<td class=\"c-fut\"></td>';",
-    "    var u=bu(b,a);var d=b.currency==='CRC'?'₡'+Math.round(a).toLocaleString():'$'+parseFloat(a).toFixed(2);",
-    "    return '<td class=\"c-paid\">>'+d+'</td>';}",
-    "  if(a==null)return '<td class=\"c-pend\">' +(iC?'PENDING':'—')+'</td>';",
-    "  var u=bu(b,a);var d=b.currency==='CRC'?'₡'+Math.round(a).toLocaleString()+'<br><small>≈$'+u.toFixed(2)+'</small>':'$'+parseFloat(a).toFixed(2);",
+    "    var d=b.currency==='CRC'?'\u20a1'+Math.round(a).toLocaleString():'$'+parseFloat(a).toFixed(2);",
+    "    return '<td class=\"c-paid\">'+d+'</td>';}",
+    "  if(a==null)return '<td class=\"c-pend\">'+(iC?'PENDING':'\u2014')+'</td>';",
+    "  var d=b.currency==='CRC'?'\u20a1'+Math.round(a).toLocaleString():'$'+parseFloat(a).toFixed(2);",
     "  return '<td class=\"c-paid\">'+d+'</td>';}",
     "function go(){",
     "  var pr=document.getElementById('fp').value;",
@@ -1329,18 +1355,21 @@ window.generateBillsReport = function() {
     "  var f=R.filter(function(b){",
     "    if(pr&&b.property!==pr)return false;",
     "    if(it&&b.short.toLowerCase().indexOf(it)===-1)return false;",
-    "    if(ty&&b.btype!==ty)return false;return true;});",
+    "    if(ty){if(ty==='yearly'&&b.btype==='regular')return false;if(ty==='regular'&&b.btype!=='regular')return false;}",
+    "    return true;});",
     "  f.sort(function(a,b){var pi=(PO.indexOf(a.property)||99)-(PO.indexOf(b.property)||99);return pi||a.short.localeCompare(b.short);});",
     "  var lp='';var h='';",
     "  f.forEach(function(b){",
     "    if(!pr&&b.property!==lp){lp=b.property;h+='<tr class=\"pr-row\"><td colspan=\"14\">'+b.property+'</td></tr>';}",
     "    var rt=Object.values(b.months).reduce(function(s,a){return s+bu(b,a);},0);",
-    "    var tb=b.btype==='yearly'?'<span class=\"by\">ANNUAL</span>':'';" ,
+    "    var isAnn=b.btype!=='regular';",
+    "    var tb=isAnn?'<span class=\"by\">ANNUAL</span>':'';" ,
+    "    var dl=isAnn&&b.dueLabel?'<span class=\"due-lbl\">Due: '+b.dueLabel+'</span><br>':'';" ,
     "    var ab=b.auto===true?'<span class=\"ba\">AUTO</span>':b.auto===false?'<span class=\"bm\">MANUAL</span>':'';" ,
-    "    h+='<tr class=\"br\"><td class=\"bn\">'+b.short+tb+ab+'<br><span class=\"bc\">'+b.card+'</span></td>';",
+    "    h+='<tr class=\"br\"><td class=\"bn\">'+b.short+tb+ab+'<br>'+dl+'<span class=\"bc\">'+b.card+'</span></td>';",
     "    for(var m=1;m<=12;m++)h+=cell(b,m);",
-    "    h+='<td class=\"c-tot\">${'+rt.toFixed(0)+'}</td></tr>';});",
-    "  if(!h)h='<tr><td colspan=\"14\">No bills match.</td></tr>';",
+    "    h+='<td class=\"c-tot\">$'+rt.toFixed(0)+'</td></tr>';});",
+    "  if(!h)h='<tr><td colspan=\"14\" style=\"padding:16px;text-align:center;color:#6b7280;\">No bills match filters.</td></tr>';",
     "  document.getElementById('tb').innerHTML=h;}",
     "go();"
   ].join("\n");
@@ -1388,6 +1417,7 @@ function getReportCSS() {
     ".br:hover{background:#f8fafc;}",
     ".bn{padding:9px 14px;font-size:12px;font-weight:600;color:#0f172a;line-height:1.4;}",
     ".bc{font-size:10px;color:#94a3b8;font-weight:400;}",
+    ".due-lbl{font-size:9px;color:#2563eb;font-weight:600;display:block;margin-bottom:1px;}",
     ".c-paid{padding:8px 5px;text-align:center;font-size:11px;color:#15803d;font-weight:600;background:#f0fdf4;}",
     ".c-pend{padding:8px 5px;text-align:center;font-size:9px;color:#d97706;font-weight:700;background:#fffbeb;}",
     ".c-fut{padding:8px 5px;text-align:center;background:#f8fafc;}",
