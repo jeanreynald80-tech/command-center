@@ -313,7 +313,23 @@ function crcToUSD(amount) { return usdCRC > 0 ? amount / usdCRC : 0; }
 function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}catch{return s;}}
 function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 
-let activeTab='home',activeTaskCat='all',activeExpSec='florida',billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='';
+let activeTab='home',activeTaskCat='all',activeExpSec='florida';
+let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property';
+// Expose bills state to global so inline handlers in generated HTML can access them
+Object.defineProperty(window,'billsMonth',{get:()=>billsMonth,set:v=>{billsMonth=v;}});
+Object.defineProperty(window,'billsPropFilter',{get:()=>billsPropFilter,set:v=>{billsPropFilter=v;}});
+Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSearch=v;}});
+Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsGroupBy=v;}});
+// Custom bill day overrides stored in memory (and localStorage for persistence)
+let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
+window.saveBillDayOverride = function(key, day) {
+  billDayOverrides[key] = parseInt(day);
+  localStorage.setItem('billDayOverrides', JSON.stringify(billDayOverrides));
+  renderBills();
+};
+window.getBillDay = function(b) {
+  return billDayOverrides[b.key] !== undefined ? billDayOverrides[b.key] : b.day;
+};
 let editingTaskId=null,editingExpId=null;
 let expCatFilter='',expMonthFilter='';
 
@@ -435,8 +451,7 @@ function render(){
   else{ab.style.display='none';renderExpenses();}
 }
 
-function renderSidebar(){
-  const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
+function renderSidebar(){  const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
   const billsUnpaid=billsDueThisMonth.filter(b=>!isBillPaid(b.key,new Date().getMonth()+1,new Date().getFullYear())).length;
   let html='';
   if(activeTab==='home'){
@@ -454,7 +469,7 @@ function renderSidebar(){
   }else if(activeTab==='bills'){
     const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti','Personal'];
     html=`<div class="sb-back" onclick="navTo('home')">← Back</div><div class="sb-group">Bills</div>`+
-    PROPS.map(p=>`<div class="sb-item${billsPropFilter===(p==='All'?'':p)?' active':''}" onclick="billsPropFilter='${p==='All'?'':p}';renderBills()"><span>${p}</span></div>`).join('');
+    PROPS.map(p=>`<div class="sb-item${billsPropFilter===(p==='All'?'':p)?' active':''}" onclick="window.billsPropFilter='${p==='All'?'':p}';window.renderBills()"><span>${p}</span></div>`).join('');
   }else{
     html=`<div class="sb-back" onclick="navTo('home')">← Back</div><div class="sb-group">Expenses</div>
     <div class="sb-item${activeExpSec==='florida'?' active':''}" onclick="navTo('expenses','','florida')"><span>Florida</span><span class="sb-count">${expenses.length}</span></div>
@@ -463,8 +478,7 @@ function renderSidebar(){
   document.getElementById('sidebar').innerHTML=html;
   document.getElementById('drawer-nav').innerHTML=html;
 }
-
-// ── HOME ──────────────────────────────────────────────────────
+window.renderSidebar=renderSidebar;
 function renderHome(){
   const eT=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const lT=lithonia.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
@@ -854,82 +868,98 @@ window.renderBills=function renderBills(){
   const todayDay=today.getDate();
   const todayMonth=today.getMonth()+1;
 
-  let regular=REGULAR_BILLS.map(b=>({...b,amount:b.amounts[billsMonth-1],type:'regular'}))
-    .filter(b=>b.amount!==undefined);
-  let yearly=YEARLY_BILLS.filter(b=>b.month===billsMonth).map(b=>({...b,type:'yearly'}));
+  // Merge all bills for this month with effective day overrides
+  let allBills=[
+    ...REGULAR_BILLS.map(b=>({...b,amount:b.amounts[billsMonth-1],btype:'regular'})).filter(b=>b.amount!==undefined),
+    ...YEARLY_BILLS.filter(b=>b.month===billsMonth).map(b=>({...b,btype:'yearly'}))
+  ].map(b=>({...b,effectiveDay:billDayOverrides[b.key]!==undefined?billDayOverrides[b.key]:b.day}));
 
-  if(billsPropFilter){regular=regular.filter(b=>b.property===billsPropFilter);yearly=yearly.filter(b=>b.property===billsPropFilter);}
+  if(billsPropFilter){allBills=allBills.filter(b=>b.property===billsPropFilter);}
   if(billsSearch){
     const q=billsSearch.toLowerCase();
-    regular=regular.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));
-    yearly=yearly.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q));
+    allBills=allBills.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));
   }
 
   function billUSD(b){
     if(b.amount===null||b.amount===undefined)return 0;
     return b.currency==='CRC'?crcToUSD(parseFloat(b.amount)):parseFloat(b.amount)||0;
   }
-  const regTotal=regular.reduce((s,b)=>s+billUSD(b),0);
-  const yrTotal=yearly.reduce((s,b)=>s+billUSD(b),0);
-  const regPaid=regular.filter(b=>isBillPaid(b.key,billsMonth,year)).reduce((s,b)=>s+billUSD(b),0);
-  const yrPaid=yearly.filter(b=>isBillPaid(b.key,billsMonth,year)).reduce((s,b)=>s+billUSD(b),0);
-  const totalDue=regTotal+yrTotal;
-  const totalPaid=regPaid+yrPaid;
-  const totalRemaining=totalDue-totalPaid;
+  const paidBills=allBills.filter(b=>isAmountPaid(b));
+  const pendingBills=allBills.filter(b=>!isAmountPaid(b));
+  const totalDue=allBills.reduce((s,b)=>s+billUSD(b),0);
+  const totalPaid=paidBills.reduce((s,b)=>s+billUSD(b),0);
+  const totalRemaining=pendingBills.length; // count of pending items
+
+  function dayEditWidget(b){
+    const d=b.effectiveDay||b.day||'?';
+    return `<span onclick="event.stopPropagation();showDayEdit('${b.key}',${d})"
+      style="font-family:'DM Mono',monospace;font-size:10px;color:var(--gold);cursor:pointer;text-decoration:underline dotted;padding:1px 4px;border-radius:3px;"
+      title="Click to change due day">Day ${d} ✎</span>`;
+  }
+
+  // amount present (not null/undefined) = PAID; null/undefined = PENDING
+  function isAmountPaid(b){ return b.amount!==null&&b.amount!==undefined; }
 
   function billRow(b){
-    const paid=isBillPaid(b.key,billsMonth,year);
-    const isOverdue=!paid&&billsMonth===todayMonth&&b.day<todayDay;
+    const amtPaid=isAmountPaid(b);
+    const effDay=b.effectiveDay||b.day;
+    const isOverdue=!amtPaid&&billsMonth===todayMonth&&effDay<todayDay;
     const isCRC=b.currency==='CRC';
+    // Status badge
+    const statusBadge=amtPaid
+      ? `<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">✓ PAID</span>`
+      : `<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:${isOverdue?'#fef2f2':'#fff8e1'};color:${isOverdue?'#b91c1c':'#92400e'};border:1px solid ${isOverdue?'#fca5a5':'#fcd34d'};">${isOverdue?'⚠ OVERDUE':'PENDING'}</span>`;
     let amt;
-    if(b.amount===null||b.amount===undefined){
-      amt='<span style="color:var(--text3);font-size:11px;">TBD</span>';
+    if(!amtPaid){
+      amt='<span style="color:var(--text3);font-size:12px;font-style:italic;">No amount</span>';
     }else if(isCRC){
       const usdEquiv=crcToUSD(parseFloat(b.amount));
       amt=`<div style="text-align:right;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:${paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)'};">&#8353;${Math.round(parseFloat(b.amount)).toLocaleString()}</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:var(--text3);">&#8353;${Math.round(parseFloat(b.amount)).toLocaleString()}</div>
         <div style="font-size:10px;color:var(--text3);margin-top:1px;">&#8776; $${usdEquiv.toFixed(2)}</div>
       </div>`;
     }else{
-      amt=`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:${paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)'};">$${parseFloat(b.amount).toFixed(2)}</div>`;
+      amt=`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:var(--text3);">$${parseFloat(b.amount).toFixed(2)}</div>`;
     }
     const autoBadge=b.auto!==undefined?`<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:${b.auto?'#e8f5e9':'#fff8e1'};color:${b.auto?'#2e7d32':'#f57f17'};border:1px solid ${b.auto?'#a5d6a7':'#ffe082'};">${b.auto?'AUTO':'MANUAL'}</span>`:'';
     const cardBadge=b.card?`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">${b.card}</span>`:'';
-    const propBadge=`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f0fe;color:#1a3a5c;border:1px solid #c0d4e8;">${b.property}</span>`;
-    const dueDay=b.day?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);">Day ${b.day}</span>`:'';
+    const propBadge=billsGroupBy!=='property'?`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f0fe;color:#1a3a5c;border:1px solid #c0d4e8;">${b.property}</span>`:'';
     const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">&#8353; CRC</span>':'';
-    return`<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:${paid?'var(--surface2)':isOverdue?'#fff8f8':'#fff'};border:1px solid ${isOverdue&&!paid?'#fca5a5':'var(--border)'};border-top:none;transition:background .12s;">
-      <button onclick="toggleBillPaid('${b.key}',${billsMonth},${year},${b.amount||0},'${b.short.replace(/'/g,"\\'")}')"
-        style="width:22px;height:22px;min-width:22px;border-radius:50%;border:1.5px solid ${paid?'var(--ink)':'var(--border2)'};background:${paid?'var(--ink)':'transparent'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:var(--gold);">
-        ${paid?'✓':''}
-      </button>
+    return`<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:${amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff'};border:1px solid ${isOverdue&&!amtPaid?'#fca5a5':'var(--border)'};border-top:none;transition:background .12s;opacity:${amtPaid?'.75':'1'};">
       <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:${paid?'400':'500'};color:${paid?'var(--text3)':'var(--text)'};text-decoration:${paid?'line-through':'none'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.short}</div>
-        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;align-items:center;">${propBadge}${autoBadge}${cardBadge}${dueDay}${crcBadge}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          ${statusBadge}
+          <span style="font-size:13px;font-weight:${amtPaid?'400':'600'};color:${amtPaid?'var(--text3)':'var(--text)'};text-decoration:${amtPaid?'line-through':'none'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.short}</span>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">${propBadge}${autoBadge}${cardBadge}${dayEditWidget(b)}${crcBadge}</div>
       </div>
-      <div style="white-space:nowrap;">${amt}</div>
+      <div style="white-space:nowrap;text-align:right;">${amt}</div>
     </div>`;
   }
 
-  function secHdr(label,total,paidAmt,count){
+  function grpHdr(label,bills){
+    const grpTotal=bills.reduce((s,b)=>s+billUSD(b),0);
+    const grpPaidCount=bills.filter(b=>isAmountPaid(b)).length;
+    const grpPendingCount=bills.filter(b=>!isAmountPaid(b)).length;
     return`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--ink);border-radius:2px 2px 0 0;margin-top:20px;margin-bottom:1px;">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);">${label}</span>
-        <span style="font-family:'DM Mono',monospace;font-size:10px;background:rgba(184,151,106,.15);border-radius:20px;padding:1px 8px;color:rgba(184,151,106,.7);">${count}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:10px;background:rgba(184,151,106,.15);border-radius:20px;padding:1px 8px;color:rgba(184,151,106,.7);">${bills.length}</span>
       </div>
       <div style="text-align:right;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:300;color:var(--gold2);">$${total.toFixed(2)}</div>
-        <div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:1px;">$${paidAmt.toFixed(2)} paid · $${(total-paidAmt).toFixed(2)} left</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:300;color:var(--gold2);">$${grpTotal.toFixed(2)}</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:1px;">${grpPaidCount} paid · ${grpPendingCount} pending</div>
       </div>
     </div>`;
   }
 
+  // ── summary header ────────────────────────────────────────
   let html=`
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
       <div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:var(--text3);margin-bottom:4px;">Bill Tracker · ${MONTH_NAMES[billsMonth-1]} ${year}</div>
         <div style="font-family:'Cormorant Garamond',serif;font-size:40px;font-weight:300;color:var(--text);line-height:1;">$${totalDue.toFixed(2)}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">USD equivalent · $${totalPaid.toFixed(2)} paid · <strong style="color:${totalRemaining>0?'var(--red)':'var(--green)'};">$${totalRemaining.toFixed(2)} remaining</strong></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">$${totalPaid.toFixed(2)} confirmed paid · <strong style="color:${pendingBills.length>0?'var(--red)':'var(--green)'};">${pendingBills.length} pending</strong></div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;background:#f0f8f2;border:1px solid #a5d6a7;border-radius:2px;padding:8px 14px;margin-bottom:14px;flex-wrap:wrap;">
@@ -939,48 +969,102 @@ window.renderBills=function renderBills(){
         style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:1px;border:1px solid #a5d6a7;background:transparent;color:#1a4a2a;cursor:pointer;">&#8635; Refresh</button>
       <span style="font-size:10px;color:var(--text3);margin-left:auto;">${usdCRCLastFetched?'Updated '+new Date(usdCRCLastFetched).toLocaleTimeString():'Using fallback rate'}</span>
     </div>
-    <div class="filter-bar" style="margin-bottom:20px;">
-      <select class="filter-sel" onchange="billsMonth=parseInt(this.value);billsPropFilter='';renderBills();renderSidebar();">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+      <select class="filter-sel" onchange="window.billsMonth=parseInt(this.value);window.billsPropFilter='';window.renderBills();window.renderSidebar();">
         ${MONTH_NAMES.map((m,i)=>`<option value="${i+1}"${billsMonth===i+1?' selected':''}>${m}</option>`).join('')}
       </select>
-      <input type="text" class="filter-sel" placeholder="Search bill or property..." value="${billsSearch}"
-        oninput="billsSearch=this.value;renderBills()" style="min-width:180px;">
-      ${(billsPropFilter||billsSearch)?'<button class="filter-clear" onclick="billsPropFilter=\'\';billsSearch=\'\';renderBills();renderSidebar();">&#10005; Clear</button>':''}
+      <input id="bills-search-inp" type="text" class="filter-sel" placeholder="Search bill or property..." value="${billsSearch.replace(/"/g,'&quot;')}"
+        oninput="window.billsSearch=this.value;window.renderBills()" style="min-width:180px;">
+      <span style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);">Group by</span>
+      <button onclick="window.billsGroupBy='day';window.renderBills()"
+        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;border-radius:1px;border:1px solid ${billsGroupBy==='day'?'var(--gold)':'var(--border)'};background:${billsGroupBy==='day'?'var(--ink)':'transparent'};color:${billsGroupBy==='day'?'var(--gold)':'var(--text2)'};cursor:pointer;">
+        Day
+      </button>
+      <button onclick="window.billsGroupBy='property';window.renderBills()"
+        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;border-radius:1px;border:1px solid ${billsGroupBy==='property'?'var(--gold)':'var(--border)'};background:${billsGroupBy==='property'?'var(--ink)':'transparent'};color:${billsGroupBy==='property'?'var(--gold)':'var(--text2)'};cursor:pointer;">
+        Property
+      </button>
+      ${(billsPropFilter||billsSearch)?`<button class="filter-clear" onclick="window.billsPropFilter='';window.billsSearch='';window.renderBills();window.renderSidebar();">&#10005; Clear</button>`:''}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
       <div style="background:#fff;border:1px solid var(--border);border-radius:2px;padding:16px;">
-        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);margin-bottom:6px;">Total due</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:var(--text);">$${totalDue.toFixed(0)}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">${regular.length+yearly.length} bills</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);margin-bottom:6px;">Total bills</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:var(--text);">${allBills.length}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${totalDue.toFixed(0)} USD equiv</div>
       </div>
-      <div style="background:#fff;border:1px solid var(--border);border-radius:2px;padding:16px;">
-        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);margin-bottom:6px;">Paid</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:#1a4a2a;">$${totalPaid.toFixed(0)}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">${regular.filter(b=>isBillPaid(b.key,billsMonth,year)).length+yearly.filter(b=>isBillPaid(b.key,billsMonth,year)).length} paid</div>
+      <div style="background:#fff;border:1px solid #a5d6a7;border-radius:2px;padding:16px;">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#1a4a2a;margin-bottom:6px;">✓ Paid (amount set)</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:#1a4a2a;">${paidBills.length}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${totalPaid.toFixed(0)} confirmed</div>
       </div>
-      <div style="background:#fff;border:1px solid ${totalRemaining>0?'#fca5a5':'var(--border)'};border-radius:2px;padding:16px;">
-        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--text3);margin-bottom:6px;">Remaining</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:${totalRemaining>0?'var(--red)':'var(--green)'};">$${totalRemaining.toFixed(0)}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">${regular.filter(b=>!isBillPaid(b.key,billsMonth,year)).length+yearly.filter(b=>!isBillPaid(b.key,billsMonth,year)).length} unpaid</div>
+      <div style="background:#fff;border:1px solid ${pendingBills.length>0?'#fca5a5':'var(--border)'};border-radius:2px;padding:16px;">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:${pendingBills.length>0?'#b91c1c':'var(--text3)'};margin-bottom:6px;">Pending</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;color:${pendingBills.length>0?'var(--red)':'var(--green)'};">${pendingBills.length}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px;">no amount recorded</div>
       </div>
     </div>`;
 
-  if(regular.length){
-    html+=secHdr('Regular Monthly Bills',regTotal,regPaid,regular.length);
-    html+=regular.sort((a,b)=>a.day-b.day).map(billRow).join('');
-  }else if(!billsSearch&&!billsPropFilter){
-    html+='<div class="empty">No regular bills for this month.</div>';
+  function sortGroup(bills){
+    // Pending (no amount) first sorted by day, then Paid sorted by day
+    const pending=bills.filter(b=>!isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
+    const paid=bills.filter(b=>isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
+    return [...pending,...paid];
   }
 
-  if(yearly.length){
-    html+=secHdr('Non-Regular / Yearly Obligations',yrTotal,yrPaid,yearly.length);
-    html+=yearly.sort((a,b)=>a.day-b.day).map(billRow).join('');
-  }else if(!billsSearch&&!billsPropFilter){
-    html+='<div class="empty" style="margin-top:16px;">No yearly obligations for this month.</div>';
+  function subHdr(label,count,isPaid){
+    return`<div style="padding:6px 14px;background:${isPaid?'var(--surface2)':'#fffbeb'};border:1px solid ${isPaid?'var(--border)':'#fcd34d'};border-top:none;display:flex;align-items:center;gap:8px;">
+      <span style="font-family:'DM Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${isPaid?'var(--text3)':'#92400e'};">${label}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:9px;background:${isPaid?'var(--border)':'#fcd34d'};border-radius:20px;padding:1px 7px;color:${isPaid?'var(--text2)':'#92400e'};">${count}</span>
+    </div>`;
   }
 
-  if(regular.length===0&&yearly.length===0){html+='<div class="empty">No bills match your filters.</div>';}
+  function renderGroup(bills){
+    const pending=bills.filter(b=>!isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
+    const paid=bills.filter(b=>isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
+    let out='';
+    if(pending.length){out+=subHdr('Pending',pending.length,false);out+=pending.map(billRow).join('');}
+    if(paid.length){out+=subHdr('Paid',paid.length,true);out+=paid.map(billRow).join('');}
+    return out;
+  }
+
+  if(allBills.length===0){
+    html+='<div class="empty">No bills match your filters.</div>';
+  }else if(billsGroupBy==='property'){
+    const byProp={};
+    allBills.forEach(b=>{if(!byProp[b.property])byProp[b.property]=[];byProp[b.property].push(b);});
+    const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Personal'];
+    const ordered=[...propOrder.filter(p=>byProp[p]),...Object.keys(byProp).filter(p=>!propOrder.includes(p))];
+    ordered.forEach(prop=>{
+      html+=grpHdr(prop,byProp[prop]);
+      html+=renderGroup(byProp[prop]);
+    });
+  }else{
+    // Group by day
+    const byDay={};
+    allBills.forEach(b=>{
+      const d=b.effectiveDay||b.day||0;
+      if(!byDay[d])byDay[d]=[];byDay[d].push(b);
+    });
+    Object.keys(byDay).sort((a,b)=>parseInt(a)-parseInt(b)).forEach(day=>{
+      const bills=byDay[day];
+      const label=parseInt(day)>0?`Day ${day} of ${MONTH_NAMES[billsMonth-1]}`:'No due day set';
+      html+=grpHdr(label,bills);
+      html+=renderGroup(bills);
+    });
+  }
+
   document.getElementById('task-area').innerHTML=html;
+  // Re-focus search box if it was being used (preserve cursor)
+  const inp=document.getElementById('bills-search-inp');
+  if(inp&&billsSearch){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
+};
+
+// Day edit popup
+window.showDayEdit=function(key,currentDay){
+  const existing=document.getElementById('day-edit-popup');
+  if(existing)existing.remove();
+  const d=parseInt(prompt(`Change due day for this bill (1-31):\nCurrent: Day ${currentDay}`,''+currentDay));
+  if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}
 };
 
 // ── SEED DATA ─────────────────────────────────────────────────
