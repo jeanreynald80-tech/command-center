@@ -277,14 +277,14 @@ body{font-family:'Montserrat',sans-serif;background:var(--surface);color:var(--t
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, getDocs, addDoc, setDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 
 const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
-import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 
 let db,tasksCol,expCol,litCol,billsCol,firebaseReady=false;
 let tasks=[],expenses=[],lithonia=[],billsPaid={};
-let usdCRC = 500; // fallback rate, will be fetched live
+let usdCRC = 500;
 let usdCRCLastFetched = 0;
 
 async function fetchExchangeRate() {
@@ -295,32 +295,24 @@ async function fetchExchangeRate() {
       usdCRC = data.rates.CRC;
       usdCRCLastFetched = Date.now();
       localStorage.setItem('usdCRC', JSON.stringify({rate: usdCRC, ts: usdCRCLastFetched}));
-      console.log('Exchange rate fetched: 1 USD =', usdCRC, 'CRC');
       return usdCRC;
     }
   } catch(e) {
-    // Try cached rate
     const cached = localStorage.getItem('usdCRC');
     if (cached) {
       const {rate, ts} = JSON.parse(cached);
       usdCRC = rate;
       usdCRCLastFetched = ts;
-      console.log('Using cached rate:', usdCRC);
     }
-    console.warn('Exchange rate fetch failed, using', usdCRC);
   }
   return usdCRC;
 }
+window.fetchExchangeRate = fetchExchangeRate;
 
-function crcToUSD(amount) {
-  return usdCRC > 0 ? amount / usdCRC : 0;
-}
-function fmtCRC(amount) {
-  return '₡' + Math.round(amount).toLocaleString();
-}
-function fmtUSD(amount) {
-  return '$' + amount.toFixed(2);
-}
+function crcToUSD(amount) { return usdCRC > 0 ? amount / usdCRC : 0; }
+function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}catch{return s;}}
+function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
+
 let activeTab='home',activeTaskCat='all',activeExpSec='florida',billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='';
 let editingTaskId=null,editingExpId=null;
 let expCatFilter='',expMonthFilter='';
@@ -329,6 +321,7 @@ const CAT_LBL={vehicles:'Vehicles / logistics',nila:'Nación Nila',florida:'Flor
 const EXP_CATS=['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
 const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 // ── PIN ───────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded',()=>{
@@ -367,20 +360,16 @@ async function initApp(){
     onSnapshot(billsCol,snap=>{billsPaid={};snap.docs.forEach(d=>{billsPaid[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
-    // Don't give up - try again after a short delay
     setTimeout(async function() {
       try {
-        const app2 = getApps().length?getApps()[0]:initializeApp(FB);
-        db = getFirestore(app2);
-        tasksCol = collection(db,'tasks');
-        expCol = collection(db,'expenses');
-        litCol = collection(db,'lithonia');
-        firebaseReady = true;
+        const app2=getApps().length?getApps()[0]:initializeApp(FB);
+        db=getFirestore(app2);
+        tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');
+        firebaseReady=true;
         onSnapshot(tasksCol,snap=>{tasks=snap.docs.map(d=>({id:d.id,...d.data()}));render();});
         onSnapshot(expCol,snap=>{expenses=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses')renderExpenses();else renderSidebar();});
         onSnapshot(litCol,snap=>{lithonia=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses')renderExpenses();else renderSidebar();});
       } catch(err2) {
-        console.error('Firebase retry failed:', err2);
         firebaseReady=false;
         tasks=JSON.parse(localStorage.getItem('tasks')||'[]');
         expenses=JSON.parse(localStorage.getItem('expenses')||'[]');
@@ -411,8 +400,7 @@ function dateBucket(s){
   const diff=Math.floor((d-t)/86400000);
   if(diff<0)return'overdue';if(diff===0)return'today';if(diff<=7)return'thisweek';return'upcoming';
 }
-function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}catch{return s;}}
-function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
+function todayISO2(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 function getFiltered(data){
   return data.filter(e=>{
     if(expCatFilter&&(e.category||'')!==expCatFilter)return false;
@@ -424,7 +412,6 @@ function dateToISO(s){const d=parseDate(s);if(!d)return'';return new Date(d.getT
 function isoToDisplay(raw){if(!raw)return'';const[y,m,d]=raw.split('-');return MN[parseInt(m)-1]+' '+parseInt(d);}
 
 // ── NAVIGATION ────────────────────────────────────────────────
-window.renderBills=window.renderBills||function(){};window.renderSidebar=function(){renderSidebar();};
 window.navTo=function(tab,taskCat,expSec){
   activeTab=tab;
   if(taskCat)activeTaskCat=taskCat;
@@ -449,11 +436,11 @@ function render(){
 }
 
 function renderSidebar(){
+  const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
+  const billsUnpaid=billsDueThisMonth.filter(b=>!isBillPaid(b.key,new Date().getMonth()+1,new Date().getFullYear())).length;
   let html='';
-  const billsDueThisMonth = getBillsDueThisMonth(new Date().getMonth()+1);
-  const billsUnpaid = billsDueThisMonth.filter(b=>!isBillPaid(b.key, new Date().getMonth()+1, new Date().getFullYear())).length;
   if(activeTab==='home'){
-    html=`<div class="sb-item${activeTab==='home'?' active':''}" onclick="navTo('home')"><span>🏠 Home</span></div>
+    html=`<div class="sb-item active" onclick="navTo('home')"><span>🏠 Home</span></div>
     <div class="sb-group">Tasks</div>
     <div class="sb-item" onclick="navTo('tasks','all')"><span>All tasks</span><span class="sb-count">${tasks.filter(t=>!t.done).length}</span></div>
     <div class="sb-group">Bills</div>
@@ -482,6 +469,8 @@ function renderHome(){
   const eT=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const lT=lithonia.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const urgent=tasks.filter(t=>!t.done&&t.tag==='urgent');
+  const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
+  const billsUnpaid=billsDueThisMonth.filter(b=>!isBillPaid(b.key,new Date().getMonth()+1,new Date().getFullYear())).length;
   let html=`<div class="home-grid">
     <div class="home-card" onclick="navTo('tasks','all')">
       <div class="home-card-lbl">Tasks</div>
@@ -744,14 +733,11 @@ window.generateReport=function(){
 window.openDrawer=function(){document.getElementById('drawer').classList.add('open');document.getElementById('drawer-overlay').classList.add('open');};
 window.closeDrawer=function(){document.getElementById('drawer').classList.remove('open');document.getElementById('drawer-overlay').classList.remove('open');};
 
-// Close overlays on backdrop click
 document.addEventListener('click',e=>{
   if(e.target.id==='task-modal')window.closeTaskModal();
   if(e.target.id==='add-task-modal')window.closeAddTask();
   if(e.target.id==='exp-modal')window.closeExpModal();
 });
-
-// ── SEED DATA ─────────────────────────────────────────────────
 
 // ── BILLS DATA ────────────────────────────────────────────────
 const REGULAR_BILLS=[
@@ -836,8 +822,6 @@ const YEARLY_BILLS=[
   {key:'mcdonough-tax-dec',short:'McDonough Property Taxes',property:'McDonough',month:12,day:1,amount:null},
 ];
 
-const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
-
 function getBillsDueThisMonth(month){
   const mi=month-1;
   const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined).map(b=>({...b,amount:b.amounts[mi],type:'regular'}));
@@ -864,27 +848,26 @@ async function toggleBillPaid(key,month,year,amount,name){
 }
 window.toggleBillPaid=toggleBillPaid;
 
+window.renderBills=function renderBills(){
+  const year=new Date().getFullYear();
+  const today=new Date();
+  const todayDay=today.getDate();
+  const todayMonth=today.getMonth()+1;
 
-window.renderBills = function renderBills() {
-  const year = new Date().getFullYear();
-  const today = new Date();
-  const todayDay = today.getDate();
-  const todayMonth = today.getMonth()+1;
-
-  let regular = REGULAR_BILLS.map(b=>({...b,amount:b.amounts[billsMonth-1],type:'regular'}))
+  let regular=REGULAR_BILLS.map(b=>({...b,amount:b.amounts[billsMonth-1],type:'regular'}))
     .filter(b=>b.amount!==undefined);
-  let yearly = YEARLY_BILLS.filter(b=>b.month===billsMonth).map(b=>({...b,type:'yearly'}));
+  let yearly=YEARLY_BILLS.filter(b=>b.month===billsMonth).map(b=>({...b,type:'yearly'}));
 
   if(billsPropFilter){regular=regular.filter(b=>b.property===billsPropFilter);yearly=yearly.filter(b=>b.property===billsPropFilter);}
   if(billsSearch){
     const q=billsSearch.toLowerCase();
-    regular=regular.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||b.card.toLowerCase().includes(q));
+    regular=regular.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));
     yearly=yearly.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q));
   }
 
   function billUSD(b){
     if(b.amount===null||b.amount===undefined)return 0;
-    return b.currency==='CRC' ? crcToUSD(parseFloat(b.amount)) : parseFloat(b.amount)||0;
+    return b.currency==='CRC'?crcToUSD(parseFloat(b.amount)):parseFloat(b.amount)||0;
   }
   const regTotal=regular.reduce((s,b)=>s+billUSD(b),0);
   const yrTotal=yearly.reduce((s,b)=>s+billUSD(b),0);
@@ -896,39 +879,40 @@ window.renderBills = function renderBills() {
 
   function billRow(b){
     const paid=isBillPaid(b.key,billsMonth,year);
-    const isCRC = b.currency === 'CRC';
-    let amt;
-    if (b.amount === null || b.amount === undefined) {
-      amt = '<span style="color:var(--text3);font-size:11px;">TBD</span>';
-    } else if (isCRC) {
-      const usdEquiv = crcToUSD(parseFloat(b.amount));
-      amt = `<div style="text-align:right;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:${paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)'};">₡${Math.round(parseFloat(b.amount)).toLocaleString()}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:1px;">≈ $${usdEquiv.toFixed(2)}</div>
-      </div>`;
-    } else {
-      amt = '<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:' + (paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)') + ';">$' + parseFloat(b.amount).toFixed(2) + '</div>';
-    }
     const isOverdue=!paid&&billsMonth===todayMonth&&b.day<todayDay;
+    const isCRC=b.currency==='CRC';
+    let amt;
+    if(b.amount===null||b.amount===undefined){
+      amt='<span style="color:var(--text3);font-size:11px;">TBD</span>';
+    }else if(isCRC){
+      const usdEquiv=crcToUSD(parseFloat(b.amount));
+      amt=`<div style="text-align:right;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:${paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)'};">&#8353;${Math.round(parseFloat(b.amount)).toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:1px;">&#8776; $${usdEquiv.toFixed(2)}</div>
+      </div>`;
+    }else{
+      amt=`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:${paid?'var(--text3)':isOverdue?'var(--red)':'var(--green)'};">$${parseFloat(b.amount).toFixed(2)}</div>`;
+    }
     const autoBadge=b.auto!==undefined?`<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:${b.auto?'#e8f5e9':'#fff8e1'};color:${b.auto?'#2e7d32':'#f57f17'};border:1px solid ${b.auto?'#a5d6a7':'#ffe082'};">${b.auto?'AUTO':'MANUAL'}</span>`:'';
     const cardBadge=b.card?`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">${b.card}</span>`:'';
     const propBadge=`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f0fe;color:#1a3a5c;border:1px solid #c0d4e8;">${b.property}</span>`;
     const dueDay=b.day?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);">Day ${b.day}</span>`:'';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:${paid?'var(--surface2)':isOverdue?'#fff8f8':'#fff'};border:1px solid ${isOverdue&&!paid?'#fca5a5':'var(--border)'};border-top:none;transition:background .12s;">
-      <button onclick="toggleBillPaid('${b.key}',${billsMonth},${year},${b.amount||0},'${b.short.replace(/'/g,"\'")}')"
+    const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">&#8353; CRC</span>':'';
+    return`<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:${paid?'var(--surface2)':isOverdue?'#fff8f8':'#fff'};border:1px solid ${isOverdue&&!paid?'#fca5a5':'var(--border)'};border-top:none;transition:background .12s;">
+      <button onclick="toggleBillPaid('${b.key}',${billsMonth},${year},${b.amount||0},'${b.short.replace(/'/g,"\\'")}')"
         style="width:22px;height:22px;min-width:22px;border-radius:50%;border:1.5px solid ${paid?'var(--ink)':'var(--border2)'};background:${paid?'var(--ink)':'transparent'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:var(--gold);">
         ${paid?'✓':''}
       </button>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:${paid?'400':'500'};color:${paid?'var(--text3)':'var(--text)'};text-decoration:${paid?'line-through':'none'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.short}</div>
-        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;align-items:center;">${propBadge}${autoBadge}${cardBadge}${dueDay}${isCRC?'<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">₡ CRC</span>':''}</div>
+        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;align-items:center;">${propBadge}${autoBadge}${cardBadge}${dueDay}${crcBadge}</div>
       </div>
       <div style="white-space:nowrap;">${amt}</div>
     </div>`;
   }
 
   function secHdr(label,total,paidAmt,count){
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--ink);border-radius:2px 2px 0 0;margin-top:20px;margin-bottom:1px;">
+    return`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--ink);border-radius:2px 2px 0 0;margin-top:20px;margin-bottom:1px;">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);">${label}</span>
         <span style="font-family:'DM Mono',monospace;font-size:10px;background:rgba(184,151,106,.15);border-radius:20px;padding:1px 8px;color:rgba(184,151,106,.7);">${count}</span>
@@ -949,10 +933,10 @@ window.renderBills = function renderBills() {
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;background:#f0f8f2;border:1px solid #a5d6a7;border-radius:2px;padding:8px 14px;margin-bottom:14px;flex-wrap:wrap;">
-      <span style="font-family:'DM Mono',monospace;font-size:10px;color:#1a4a2a;">🌐 Exchange rate:</span>
-      <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#1a4a2a;">$1 USD = ₡${Math.round(usdCRC).toLocaleString()} CRC</span>
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:#1a4a2a;">&#127758; Exchange rate:</span>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#1a4a2a;">$1 USD = &#8353;${Math.round(usdCRC).toLocaleString()} CRC</span>
       <button onclick="fetchExchangeRate().then(()=>renderBills())"
-        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:1px;border:1px solid #a5d6a7;background:transparent;color:#1a4a2a;cursor:pointer;">↻ Refresh</button>
+        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:1px;border:1px solid #a5d6a7;background:transparent;color:#1a4a2a;cursor:pointer;">&#8635; Refresh</button>
       <span style="font-size:10px;color:var(--text3);margin-left:auto;">${usdCRCLastFetched?'Updated '+new Date(usdCRCLastFetched).toLocaleTimeString():'Using fallback rate'}</span>
     </div>
     <div class="filter-bar" style="margin-bottom:20px;">
@@ -961,7 +945,7 @@ window.renderBills = function renderBills() {
       </select>
       <input type="text" class="filter-sel" placeholder="Search bill or property..." value="${billsSearch}"
         oninput="billsSearch=this.value;renderBills()" style="min-width:180px;">
-      ${(billsPropFilter||billsSearch)?'<button class="filter-clear" onclick="billsPropFilter=\'\';billsSearch=\'\';renderBills();renderSidebar();">✕ Clear</button>':''}
+      ${(billsPropFilter||billsSearch)?'<button class="filter-clear" onclick="billsPropFilter=\'\';billsSearch=\'\';renderBills();renderSidebar();">&#10005; Clear</button>':''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px;">
       <div style="background:#fff;border:1px solid var(--border);border-radius:2px;padding:16px;">
@@ -984,14 +968,14 @@ window.renderBills = function renderBills() {
   if(regular.length){
     html+=secHdr('Regular Monthly Bills',regTotal,regPaid,regular.length);
     html+=regular.sort((a,b)=>a.day-b.day).map(billRow).join('');
-  } else if(!billsSearch&&!billsPropFilter){
+  }else if(!billsSearch&&!billsPropFilter){
     html+='<div class="empty">No regular bills for this month.</div>';
   }
 
   if(yearly.length){
     html+=secHdr('Non-Regular / Yearly Obligations',yrTotal,yrPaid,yearly.length);
     html+=yearly.sort((a,b)=>a.day-b.day).map(billRow).join('');
-  } else if(!billsSearch&&!billsPropFilter){
+  }else if(!billsSearch&&!billsPropFilter){
     html+='<div class="empty" style="margin-top:16px;">No yearly obligations for this month.</div>';
   }
 
@@ -999,6 +983,7 @@ window.renderBills = function renderBills() {
   document.getElementById('task-area').innerHTML=html;
 };
 
+// ── SEED DATA ─────────────────────────────────────────────────
 const TASK_SEED=[
   {text:'Pick up Enterprise rental car',cat:'vehicles',tag:'urgent',date:'May 8',done:false,createdAt:1},
   {text:'Pick up U-Haul',cat:'vehicles',tag:'urgent',date:'May 9',done:false,createdAt:2},
@@ -1060,6 +1045,7 @@ const FL_SEED=[
   {date:'2026-05-09',store:'Quick Trip',item:'Gas',amount:92.28,category:'Gas',card:'Truist Debit',location:'Smyrna, GA',addedAt:18},
   {date:'2026-05-09',store:'Uhaul',item:'Uhaul rental Smyrna to Pembroke Pines',amount:710.41,category:'Transportation',card:'American Express',location:'Smyrna to Pembroke Pines',addedAt:19},
 ];
+
 </script>
 </body>
 </html>
