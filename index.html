@@ -1204,338 +1204,220 @@ window.showDayEdit=function(key,currentDay){
   if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}
 };
 
-// ── BILLS REPORT ──────────────────────────────────────────────
-window.generateBillsReport=function(){
-  const year=new Date().getFullYear();
-  const today=new Date();
-  const currentMonth=today.getMonth()+1; // 1-12
-  const dateStr=today.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+// ── BILLS REPORT ─────────────────────────────────────────────────
+window.generateBillsReport = function() {
+  var year = new Date().getFullYear();
+  var today = new Date();
+  var currentMonth = today.getMonth() + 1;
+  var dateStr = today.toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"});
+  var MN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var PO = ["Hampton","Pembroke Pines","Lithonia","McDonough","Nila","Ciudad Colon","Haiti","Personal"];
 
-  // Build complete bill universe: all regular + all yearly
-  // For each bill, get amount per month (seed + overrides)
-  function getEffectiveAmount(bill, month){
-    const amtKey = bill.key+'-'+year+'-'+month;
-    const override = billAmountOverrides[amtKey];
-    if(override !== undefined) return override;
-    if(bill.btype==='regular') return bill.amounts[month-1]; // may be null/undefined
-    if(bill.btype==='yearly') return bill.month===month ? bill.amount : undefined;
+  function getAmt(bill, month) {
+    var k = bill.key + "-" + year + "-" + month;
+    var ov = billAmountOverrides[k];
+    if (ov !== undefined) return ov;
+    if (bill.btype === "regular") return bill.amounts[month - 1];
+    if (bill.btype === "yearly") return bill.month === month ? bill.amount : undefined;
     return undefined;
   }
 
-  // Combine regular and yearly into one list
-  const allBillDefs = [
-    ...REGULAR_BILLS.map(b=>({...b,btype:'regular'})),
-    ...YEARLY_BILLS.map(b=>({...b,btype:'yearly'}))
-  ];
+  var allDefs = [].concat(
+    REGULAR_BILLS.map(function(b){ return Object.assign({}, b, {btype:"regular"}); }),
+    YEARLY_BILLS.map(function(b){ return Object.assign({}, b, {btype:"yearly"}); })
+  );
 
-  // Build rows: each bill gets amounts[1..12]
-  const rows = allBillDefs.map(b=>{
-    const months={};
-    for(let m=1;m<=12;m++) months[m]=getEffectiveAmount(b,m);
-    return {...b, months};
+  var rows = allDefs.map(function(b) {
+    var mo = {};
+    for (var m = 1; m <= 12; m++) mo[m] = getAmt(b, m);
+    return Object.assign({}, b, {months: mo});
   });
 
-  // Summary stats
-  function billUSDamt(b, amt){
-    if(amt===null||amt===undefined) return 0;
-    return b.currency==='CRC' ? crcToUSD(parseFloat(amt)) : parseFloat(amt)||0;
+  function toUSD(b, a) {
+    if (a === null || a === undefined) return 0;
+    return b.currency === "CRC" ? crcToUSD(parseFloat(a)) : (parseFloat(a) || 0);
   }
-  const totalPaidYTD = rows.reduce((s,b)=>{
-    for(let m=1;m<=currentMonth;m++) s+=billUSDamt(b,b.months[m]);
+
+  var ytd = rows.reduce(function(s, b) {
+    for (var m = 1; m <= currentMonth; m++) s += toUSD(b, b.months[m]);
     return s;
-  },0);
-  const pendingThisMonth = rows.filter(b=>b.months[currentMonth]===null||b.months[currentMonth]===undefined).length;
-  const propSet=new Set(rows.map(b=>b.property));
-  const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Personal'];
-  const allProps=[...propOrder.filter(p=>propSet.has(p)),...[...propSet].filter(p=>!propOrder.includes(p))];
+  }, 0);
 
-  // Column totals per month (USD equiv)
-  const monthTotals={};
-  for(let m=1;m<=12;m++){
-    monthTotals[m]=rows.reduce((s,b)=>s+billUSDamt(b,b.months[m]),0);
-  }
+  var pend = rows.filter(function(b) { var a = b.months[currentMonth]; return a === null || a === undefined; }).length;
 
-  const MN_SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var ps = {}; rows.forEach(function(b){ ps[b.property] = 1; });
+  var props = PO.filter(function(p){ return ps[p]; }).concat(Object.keys(ps).filter(function(p){ return PO.indexOf(p) === -1; }));
 
-  // Cell renderer
-  function cell(b, m){
-    const amt = b.months[m];
-    const isFuture = m > currentMonth;
-    const isCurrent = m === currentMonth;
+  var mTot = {};
+  for (var m = 1; m <= 12; m++) mTot[m] = rows.reduce(function(s,b){ return s + toUSD(b, b.months[m]); }, 0);
+  var grand = Object.values(mTot).reduce(function(s,v){ return s+v; }, 0);
 
-    if(isFuture){
-      // Future months: blank if no amount set, show if set (override)
-      if(amt===null||amt===undefined) return `<td class="cell cell-future"></td>`;
-      const usd = billUSDamt(b,amt);
-      return `<td class="cell cell-paid" title="$${usd.toFixed(2)} USD">${b.currency==='CRC'?'₡'+Math.round(amt).toLocaleString():'$'+parseFloat(amt).toFixed(2)}</td>`;
-    }
-    if(amt===null||amt===undefined){
-      return `<td class="cell cell-pending">${isCurrent?'PENDING':'—'}</td>`;
-    }
-    const usd=billUSDamt(b,amt);
-    const disp=b.currency==='CRC'?`₡${Math.round(amt).toLocaleString()}<br><span style="font-size:9px;color:#6b7280;">≈$${usd.toFixed(2)}</span>`:`$${parseFloat(amt).toFixed(2)}`;
-    return `<td class="cell cell-paid">${disp}</td>`;
-  }
+  // Serialize rows for client
+  var rj = JSON.stringify(rows.map(function(b) {
+    var mo = {}; for (var k in b.months) mo[k] = b.months[k];
+    return {key:b.key, short:b.short, property:b.property, btype:b.btype, auto:b.auto, card:b.card||"", currency:b.currency||"", months:mo};
+  }));
 
-  // Group rows by property
-  function buildPropertySection(propFilter, itemFilter, typeFilter){
-    let filtered = rows.filter(b=>{
-      if(propFilter && b.property!==propFilter) return false;
-      if(itemFilter && !b.short.toLowerCase().includes(itemFilter.toLowerCase())) return false;
-      if(typeFilter==='regular' && b.btype!=='regular') return false;
-      if(typeFilter==='yearly' && b.btype!=='yearly') return false;
-      return true;
-    });
-    if(!filtered.length) return '<tr><td colspan="14" style="padding:16px;text-align:center;color:#6b7280;font-size:12px;">No bills match filters.</td></tr>';
+  // Build page parts
+  var p = [];
+  p.push("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Annual Bill Report " + year + "</title>");
+  p.push("<link href=\"https://fonts.bunny.net/css?family=inter:400,500,600,700\" rel=\"stylesheet\">");
+  p.push("<style>" + getReportCSS() + "</style></head><body>");
 
-    // Sort by property then name
-    filtered.sort((a,b)=>{
-      const pi=propOrder.indexOf(a.property)-propOrder.indexOf(b.property);
-      if(pi!==0) return pi;
-      return a.short.localeCompare(b.short);
-    });
+  // Cover
+  p.push("<div class=\"cover\">");
+  p.push("<div class=\"lbl\">Annual Bill Report</div>");
+  p.push("<div class=\"ttl\">Command Center &middot; " + year + "</div>");
+  p.push("<div class=\"sub\">Reynald Laurent &middot; Generated " + dateStr + "</div>");
+  p.push("<div class=\"stats\">");
+  p.push(stat("Total Paid YTD", "$" + ytd.toFixed(0), "USD equiv Jan–" + MN[currentMonth-1]));
+  p.push(stat("Pending This Month", "" + pend, "bills without amount in " + MN[currentMonth-1]));
+  p.push(stat("Properties", "" + props.length, "US & Costa Rica"));
+  p.push(stat("Exchange Rate", "$1=₡" + Math.round(usdCRC).toLocaleString(), "CRC conversions"));
+  p.push("</div></div>");
 
-    let lastProp='';
-    return filtered.map(b=>{
-      let propRow='';
-      if(b.property!==lastProp){
-        lastProp=b.property;
-        if(!propFilter){ // only show prop header if not filtered to one prop
-          propRow=`<tr class="prop-row"><td colspan="14">${b.property}</td></tr>`;
-        }
-      }
-      const rowTotal=Object.values(b.months).reduce((s,a)=>s+billUSDamt(b,a),0);
-      const typeBadge=b.btype==='yearly'?'<span class="badge-yr">ANNUAL</span>':'';
-      const autoBadge=b.auto!==undefined?(b.auto?'<span class="badge-auto">AUTO</span>':'<span class="badge-man">MANUAL</span>'):'';
-      return propRow+`<tr class="bill-row">
-        <td class="bill-name">${b.short}${typeBadge}${autoBadge}<br><span class="bill-card">${b.card||''}</span></td>
-        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>cell(b,m)).join('')}
-        <td class="cell cell-total">$${rowTotal.toFixed(0)}</td>
-      </tr>`;
-    }).join('');
-  }
+  // Legend
+  p.push("<div class=\"leg\">");
+  p.push(sw("#f0fdf4","#bbf7d0") + " Paid");
+  p.push(sw("#fffbeb","#fde68a") + " Pending (current month)");
+  p.push(sw("#f8fafc","#e2e8f0") + " Future (blank)");
+  p.push("<span class=\"by\">ANNUAL</span> = non-regular bill");
+  p.push("</div>");
 
-  // Month total row
-  const totalRow=`<tr class="total-row">
-    <td>TOTAL (USD equiv)</td>
-    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<td class="${m===currentMonth?'cell-current-total':m>currentMonth?'cell-future-total':'cell-paid-total'}">$${monthTotals[m].toFixed(0)}</td>`).join('')}
-    <td class="cell-total">$${Object.values(monthTotals).reduce((s,v)=>s+v,0).toFixed(0)}</td>
-  </tr>`;
+  // Filters bar
+  var propOpts = props.map(function(pr){ return "<option value=\"" + pr + "\">" + pr + "</option>"; }).join("");
+  p.push("<div class=\"filters\">");
+  p.push("<div class=\"fg\"><span class=\"fl\">Property</span><select id=\"fp\" class=\"fs\" onchange=\"go()\"><option value=\"\">All</option>" + propOpts + "</select></div>");
+  p.push("<div class=\"fg\"><span class=\"fl\">Search</span><input id=\"fi\" class=\"fs\" type=\"text\" placeholder=\"e.g. Xfinity...\" oninput=\"go()\" style=\"min-width:140px;\"></div>");
+  p.push("<div class=\"fg\"><span class=\"fl\">Type</span><select id=\"ft\" class=\"fs\" onchange=\"go()\"><option value=\"\">All</option><option value=\"regular\">Regular</option><option value=\"yearly\">Annual</option></select></div>");
+  p.push("<button class=\"fbtn\" onclick=\"document.getElementById('fp').value='';document.getElementById('fi').value='';document.getElementById('ft').value='';go();\">&times; Clear</button>");
+  p.push("<div class=\"rate\">$1=$" + Math.round(usdCRC).toLocaleString() + " CRC</div>");
+  p.push("</div>");
 
-  const html=`<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Annual Bill Report ${year}</title>
-<link href="https://fonts.bunny.net/css?family=inter:400,500,600,700|dm-mono:400,500" rel="stylesheet">
-<style>
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:Inter,system-ui,sans-serif;background:#f0f4f8;color:#0f172a;font-size:13px;}
+  // Table
+  var thM = MN.map(function(mn,i){ var c=(i+1===currentMonth)?" class=\"cur\"":""; return "<th"+c+">"+mn+(i+1===currentMonth?" ◄":"")+"</th>"; }).join("");
+  var tfM = MN.map(function(mn,i){ var mn2=i+1; var c=mn2<currentMonth?"tc-p":mn2===currentMonth?"tc-c":"tc-f"; return "<td class=\""+c+"\">$"+mTot[mn2].toFixed(0)+"</td>"; }).join("");
+  p.push("<div class=\"body\"><div class=\"stit\">Annual Bill Matrix &mdash; " + year + "</div>");
+  p.push("<div class=\"tw\"><table><thead><tr><th>Bill</th>" + thM + "<th class=\"th\">Full Year</th></tr></thead>");
+  p.push("<tbody id=\"tb\"></tbody>");
+  p.push("<tfoot><tr class=\"tr\"><td>TOTAL</td>" + tfM + "<td class=\"tc-tot\">$" + grand.toFixed(0) + "</td></tr></tfoot>");
+  p.push("</table></div></div>");
 
-/* COVER */
-.cover{background:#0f2044;color:#fff;padding:40px 48px;border-bottom:4px solid #2563eb;}
-.cover-label{font-size:10px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:#93c5fd;margin-bottom:8px;}
-.cover-title{font-size:36px;font-weight:700;margin-bottom:4px;}
-.cover-sub{font-size:12px;color:rgba(255,255,255,.4);margin-bottom:28px;}
-.cover-stats{display:flex;gap:40px;flex-wrap:wrap;}
-.cs{}.cs-label{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:rgba(255,255,255,.35);margin-bottom:4px;}
-.cs-val{font-size:28px;font-weight:700;color:#93c5fd;}
-.cs-sub{font-size:10px;color:rgba(255,255,255,.3);margin-top:2px;}
+  // Actions
+  p.push("<div class=\"act\"><button class=\"bp\" onclick=\"window.print()\">Print / Save PDF</button> <button class=\"bc\" onclick=\"window.close()\">Close</button></div>");
+  p.push("<div class=\"foot\">COMMAND CENTER &middot; REYNALD LAURENT &middot; " + year + "</div>");
 
-/* FILTERS */
-.filters{background:#fff;border-bottom:1px solid #cbd5e1;padding:14px 24px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;position:sticky;top:0;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.06);}
-.filter-group{display:flex;align-items:center;gap:6px;}
-.filter-group label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;}
-.filter-group select, .filter-group input{font-size:12px;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;outline:none;color:#0f172a;background:#fff;}
-.filter-group select:focus,.filter-group input:focus{border-color:#2563eb;}
-.filter-btn{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:7px 14px;border-radius:6px;border:none;background:#0f2044;color:#fff;cursor:pointer;}
-.filter-btn:hover{background:#1a3260;}
-.rate-pill{font-size:10px;font-family:'DM Mono',monospace;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:4px 10px;color:#1d4ed8;margin-left:auto;}
+  // Client script — NO template literals, NO raw script-close tag
+  var js = [
+    "var R=" + rj + ";",
+    "var PO=" + JSON.stringify(PO) + ";",
+    "var CM=" + currentMonth + ";",
+    "var UR=" + usdCRC + ";",
+    "function bu(b,a){if(a==null)return 0;return b.currency==='CRC'?parseFloat(a)/UR:(parseFloat(a)||0);}",
+    "function cell(b,m){",
+    "  var a=b.months[m];var iF=m>CM;var iC=m===CM;",
+    "  if(iF){if(a==null)return '<td class=\"c-fut\"></td>';",
+    "    var u=bu(b,a);var d=b.currency==='CRC'?'₡'+Math.round(a).toLocaleString():'$'+parseFloat(a).toFixed(2);",
+    "    return '<td class=\"c-paid\">>'+d+'</td>';}",
+    "  if(a==null)return '<td class=\"c-pend\">' +(iC?'PENDING':'—')+'</td>';",
+    "  var u=bu(b,a);var d=b.currency==='CRC'?'₡'+Math.round(a).toLocaleString()+'<br><small>≈$'+u.toFixed(2)+'</small>':'$'+parseFloat(a).toFixed(2);",
+    "  return '<td class=\"c-paid\">'+d+'</td>';}",
+    "function go(){",
+    "  var pr=document.getElementById('fp').value;",
+    "  var it=document.getElementById('fi').value.toLowerCase();",
+    "  var ty=document.getElementById('ft').value;",
+    "  var f=R.filter(function(b){",
+    "    if(pr&&b.property!==pr)return false;",
+    "    if(it&&b.short.toLowerCase().indexOf(it)===-1)return false;",
+    "    if(ty&&b.btype!==ty)return false;return true;});",
+    "  f.sort(function(a,b){var pi=(PO.indexOf(a.property)||99)-(PO.indexOf(b.property)||99);return pi||a.short.localeCompare(b.short);});",
+    "  var lp='';var h='';",
+    "  f.forEach(function(b){",
+    "    if(!pr&&b.property!==lp){lp=b.property;h+='<tr class=\"pr-row\"><td colspan=\"14\">'+b.property+'</td></tr>';}",
+    "    var rt=Object.values(b.months).reduce(function(s,a){return s+bu(b,a);},0);",
+    "    var tb=b.btype==='yearly'?'<span class=\"by\">ANNUAL</span>':'';" ,
+    "    var ab=b.auto===true?'<span class=\"ba\">AUTO</span>':b.auto===false?'<span class=\"bm\">MANUAL</span>':'';" ,
+    "    h+='<tr class=\"br\"><td class=\"bn\">'+b.short+tb+ab+'<br><span class=\"bc\">'+b.card+'</span></td>';",
+    "    for(var m=1;m<=12;m++)h+=cell(b,m);",
+    "    h+='<td class=\"c-tot\">${'+rt.toFixed(0)+'}</td></tr>';});",
+    "  if(!h)h='<tr><td colspan=\"14\">No bills match.</td></tr>';",
+    "  document.getElementById('tb').innerHTML=h;}",
+    "go();"
+  ].join("\n");
 
-/* TABLE */
-.body{padding:24px 24px 60px;}
-.section-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#64748b;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;}
-.tbl-wrap{overflow-x:auto;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.07);margin-bottom:32px;}
-table{width:100%;border-collapse:collapse;background:#fff;min-width:900px;}
-thead tr{background:#0f2044;}
-thead th{padding:10px 8px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.6);text-align:center;white-space:nowrap;}
-thead th:first-child{text-align:left;padding-left:14px;width:200px;color:rgba(255,255,255,.8);}
-thead th.cur-month{background:#1a3260;color:#93c5fd;}
-thead th:last-child{color:rgba(255,255,255,.9);background:#1a3260;}
+  p.push("<scr" + "ipt>" + js + "</scr" + "ipt>");
+  p.push("</body></html>");
 
-.prop-row td{background:#1e3a5f;color:#93c5fd;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:7px 14px;}
-
-.bill-row{border-bottom:1px solid #f1f5f9;}
-.bill-row:hover{background:#f8fafc;}
-.bill-name{padding:9px 14px;font-size:12px;font-weight:600;color:#0f172a;min-width:180px;vertical-align:middle;}
-.bill-card{font-size:10px;color:#94a3b8;font-weight:400;}
-
-.cell{padding:8px 6px;text-align:center;font-size:11px;vertical-align:middle;}
-.cell-paid{color:#15803d;font-weight:600;background:#f0fdf4;}
-.cell-pending{color:#d97706;font-weight:700;font-size:9px;letter-spacing:.05em;background:#fffbeb;}
-.cell-future{background:#f8fafc;color:#e2e8f0;}
-
-.total-row td{padding:10px 6px;font-size:11px;font-weight:700;text-align:center;background:#0f2044;color:#93c5fd;border-top:2px solid #1e3a5f;}
-.total-row td:first-child{text-align:left;padding-left:14px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;}
-.cell-paid-total{color:#86efac!important;}
-.cell-current-total{color:#fde68a!important;background:rgba(253,230,138,.1);}
-.cell-future-total{color:rgba(147,197,253,.4)!important;}
-.cell-total{background:#1a3260!important;color:#fff!important;font-weight:700!important;}
-
-.badge-yr{font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:20px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;margin-left:5px;vertical-align:middle;}
-.badge-auto{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;margin-left:4px;}
-.badge-man{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;background:#fffbeb;color:#d97706;border:1px solid #fde68a;margin-left:4px;}
-
-.legend{display:flex;gap:16px;flex-wrap:wrap;padding:16px 24px;background:#fff;border-bottom:1px solid #e2e8f0;font-size:11px;}
-.leg-item{display:flex;align-items:center;gap:6px;}
-.leg-swatch{width:14px;height:14px;border-radius:3px;}
-
-.actions{text-align:center;padding:20px;background:#fff;border-top:1px solid #e2e8f0;}
-.actions button{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:10px 22px;border-radius:6px;cursor:pointer;margin:0 4px;}
-.btn-print{background:#0f2044;color:#fff;border:none;}
-.btn-close{background:#f0f4f8;color:#334155;border:1px solid #cbd5e1;}
-.footer{text-align:center;padding:20px;font-size:10px;color:#94a3b8;letter-spacing:.08em;}
-@media print{
-  .filters,.actions{display:none!important;}
-  body{background:#fff;}
-  .cover{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-  thead,.prop-row,.total-row{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-}
-</style></head><body>
-
-<div class="cover">
-  <div class="cover-label">Annual Bill Report</div>
-  <div class="cover-title">Command Center · ${year}</div>
-  <div class="cover-sub">Reynald Laurent · Generated ${dateStr}</div>
-  <div class="cover-stats">
-    <div class="cs"><div class="cs-label">Total paid YTD</div><div class="cs-val">$${totalPaidYTD.toFixed(0)}</div><div class="cs-sub">USD equivalent · Jan–${MN_SHORT[currentMonth-1]}</div></div>
-    <div class="cs"><div class="cs-label">Pending this month</div><div class="cs-val" style="color:#fca5a5;">${pendingThisMonth}</div><div class="cs-sub">bills without amount in ${MN_SHORT[currentMonth-1]}</div></div>
-    <div class="cs"><div class="cs-label">Properties tracked</div><div class="cs-val">${allProps.length}</div><div class="cs-sub">US &amp; Costa Rica</div></div>
-    <div class="cs"><div class="cs-label">Exchange rate</div><div class="cs-val" style="font-size:18px;margin-top:6px;">$1 = ₡${Math.round(usdCRC).toLocaleString()}</div><div class="cs-sub">CRC used for conversions</div></div>
-  </div>
-</div>
-
-<div class="legend">
-  <div class="leg-item"><div class="leg-swatch" style="background:#f0fdf4;border:1px solid #bbf7d0;"></div> Paid / Amount recorded</div>
-  <div class="leg-item"><div class="leg-swatch" style="background:#fffbeb;border:1px solid #fde68a;"></div> Pending (current month)</div>
-  <div class="leg-item"><div class="leg-swatch" style="background:#f8fafc;border:1px solid #e2e8f0;"></div> Future (not yet due)</div>
-  <div class="leg-item"><div class="leg-swatch" style="background:#eff6ff;border:1px solid #bfdbfe;"></div><span class="badge-yr">ANNUAL</span> = non-regular / yearly bill</div>
-</div>
-
-<div class="filters" id="filters">
-  <div class="filter-group">
-    <label>Property</label>
-    <select id="f-prop" onchange="applyFilters()">
-      <option value="">All Properties</option>
-      ${allProps.map(p=>`<option value="${p}">${p}</option>`).join('')}
-    </select>
-  </div>
-  <div class="filter-group">
-    <label>Search bill</label>
-    <input id="f-item" type="text" placeholder="e.g. Xfinity, HOA..." oninput="applyFilters()" style="min-width:160px;">
-  </div>
-  <div class="filter-group">
-    <label>Type</label>
-    <select id="f-type" onchange="applyFilters()">
-      <option value="">All types</option>
-      <option value="regular">Regular monthly</option>
-      <option value="yearly">Non-regular / Annual</option>
-    </select>
-  </div>
-  <button class="filter-btn" onclick="document.getElementById('f-prop').value='';document.getElementById('f-item').value='';document.getElementById('f-type').value='';applyFilters();">✕ Clear</button>
-  <div class="rate-pill">$1 USD = ₡${Math.round(usdCRC).toLocaleString()} CRC</div>
-</div>
-
-<div class="body">
-  <div class="section-title">Annual Bill Matrix — ${year}</div>
-  <div class="tbl-wrap">
-    <table id="bill-table">
-      <thead><tr>
-        <th>Bill</th>
-        ${MN_SHORT.map((m,i)=>`<th class="${i+1===currentMonth?'cur-month':''}">${m}${i+1===currentMonth?' ◀':''}</th>`).join('')}
-        <th>YTD Total</th>
-      </tr></thead>
-      <tbody id="table-body">
-        <!-- filled by applyFilters() -->
-      </tbody>
-      <tfoot>${totalRow}</tfoot>
-    </table>
-  </div>
-</div>
-
-<div class="actions">
-  <button class="btn-print" onclick="window.print()">🖨 Print / Save PDF</button>
-  <button class="btn-close" onclick="window.close()">✕ Close</button>
-</div>
-<div class="footer">COMMAND CENTER · REYNALD LAURENT · ${year}</div>
-
-<script>
-const ROWS = ${JSON.stringify(rows.map(b=>({
-  key:b.key,short:b.short,property:b.property,btype:b.btype,
-  auto:b.auto,card:b.card,currency:b.currency,
-  months:Object.fromEntries(Object.entries(b.months).map(([k,v])=>[k,v]))
-})))};
-const PROP_ORDER=${JSON.stringify(propOrder)};
-const CURRENT_MONTH=${currentMonth};
-const USD_CRC=${usdCRC};
-
-function billUSD(b,amt){
-  if(amt===null||amt===undefined||amt==='')return 0;
-  return b.currency==='CRC'?parseFloat(amt)/USD_CRC:parseFloat(amt)||0;
-}
-
-function cellHtml(b,m){
-  const amt=b.months[m];
-  const isFuture=m>CURRENT_MONTH;
-  const isCurrent=m===CURRENT_MONTH;
-  if(isFuture){
-    if(amt===null||amt===undefined)return '<td class="cell cell-future"></td>';
-    const usd=billUSD(b,amt);
-    return '<td class="cell cell-paid" title="$'+usd.toFixed(2)+' USD">'+(b.currency==='CRC'?'₡'+Math.round(amt).toLocaleString():'$'+parseFloat(amt).toFixed(2))+'</td>';
-  }
-  if(amt===null||amt===undefined){
-    return '<td class="cell cell-pending">'+(isCurrent?'PENDING':'—')+'</td>';
-  }
-  const usd=billUSD(b,amt);
-  const disp=b.currency==='CRC'?'₡'+Math.round(amt).toLocaleString()+'<br><span style="font-size:9px;color:#6b7280;">≈$'+usd.toFixed(2)+'</span>':'$'+parseFloat(amt).toFixed(2);
-  return '<td class="cell cell-paid">'+disp+'</td>';
-}
-
-function applyFilters(){
-  const prop=document.getElementById('f-prop').value;
-  const item=document.getElementById('f-item').value.toLowerCase();
-  const type=document.getElementById('f-type').value;
-  let filtered=ROWS.filter(b=>{
-    if(prop&&b.property!==prop)return false;
-    if(item&&!b.short.toLowerCase().includes(item))return false;
-    if(type&&b.btype!==type)return false;
-    return true;
-  });
-  filtered.sort((a,b)=>{
-    const pi=(PROP_ORDER.indexOf(a.property)||99)-(PROP_ORDER.indexOf(b.property)||99);
-    return pi!==0?pi:a.short.localeCompare(b.short);
-  });
-  let lastProp='';let html='';
-  filtered.forEach(b=>{
-    if(!prop&&b.property!==lastProp){
-      lastProp=b.property;
-      html+='<tr class="prop-row"><td colspan="14">'+b.property+'</td></tr>';
-    }
-    const rowTotal=Object.values(b.months).reduce((s,a)=>s+billUSD(b,a),0);
-    const typeBadge=b.btype==='yearly'?'<span class="badge-yr">ANNUAL</span>':'';
-    const autoBadge=b.auto!==undefined?(b.auto?'<span class="badge-auto">AUTO</span>':'<span class="badge-man">MANUAL</span>'):'';
-    html+='<tr class="bill-row"><td class="bill-name">'+b.short+typeBadge+autoBadge+'<br><span class="bill-card">'+(b.card||'')+'</span></td>';
-    for(let m=1;m<=12;m++)html+=cellHtml(b,m);
-    html+='<td class="cell cell-total">$'+rowTotal.toFixed(0)+'</td></tr>';
-  });
-  if(!html)html='<tr><td colspan="14" style="padding:16px;text-align:center;color:#6b7280;">No bills match filters.</td></tr>';
-  document.getElementById('table-body').innerHTML=html;
-}
-applyFilters();
-<\/script>
-</body></html>`;
-
-  const win=window.open('','_blank');
-  if(win){win.document.write(html);win.document.close();}
-  else alert('Please allow popups to view the report.');
+  var html = p.join("");
+  var win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); }
+  else alert("Please allow popups to view the report.");
 };
+
+function getReportCSS() {
+  return [
+    "*{box-sizing:border-box;margin:0;padding:0;}",
+    "body{font-family:Inter,system-ui,sans-serif;background:#f0f4f8;color:#0f172a;font-size:13px;}",
+    ".cover{background:#0f2044;color:#fff;padding:36px 48px;border-bottom:4px solid #2563eb;}",
+    ".lbl{font-size:10px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:#93c5fd;margin-bottom:8px;}",
+    ".ttl{font-size:30px;font-weight:700;margin-bottom:4px;}",
+    ".sub{font-size:12px;color:rgba(255,255,255,.4);margin-bottom:20px;}",
+    ".stats{display:flex;gap:32px;flex-wrap:wrap;}",
+    ".sv{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:rgba(255,255,255,.35);margin-bottom:4px;}",
+    ".sn{font-size:22px;font-weight:700;color:#93c5fd;}",
+    ".ss{font-size:10px;color:rgba(255,255,255,.3);margin-top:2px;}",
+    ".leg{display:flex;gap:14px;flex-wrap:wrap;padding:10px 24px;background:#fff;border-bottom:1px solid #e2e8f0;font-size:11px;align-items:center;}",
+    ".sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;margin-right:3px;}",
+    ".filters{background:#fff;border-bottom:1px solid #cbd5e1;padding:10px 24px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;position:sticky;top:0;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.06);}",
+    ".fg{display:flex;align-items:center;gap:6px;}",
+    ".fl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;}",
+    ".fs{font-size:12px;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;outline:none;background:#fff;}",
+    ".fbtn{font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:none;background:#0f2044;color:#fff;cursor:pointer;}",
+    ".rate{font-size:10px;font-family:monospace;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:4px 10px;color:#1d4ed8;margin-left:auto;}",
+    ".body{padding:18px 24px 60px;}",
+    ".stit{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#64748b;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0;}",
+    ".tw{overflow-x:auto;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.07);}",
+    "table{width:100%;border-collapse:collapse;background:#fff;min-width:1000px;}",
+    "thead tr{background:#0f2044;}",
+    "thead th{padding:9px 6px;font-size:9px;font-weight:700;text-transform:uppercase;color:rgba(255,255,255,.6);text-align:center;white-space:nowrap;}",
+    "thead th:first-child{text-align:left;padding-left:14px;width:210px;color:rgba(255,255,255,.85);}",
+    "thead th.cur{background:#1a3260;color:#93c5fd;}",
+    "thead th.th{background:#1a3260;color:#fff;}",
+    ".pr-row td{background:#1e3a5f;color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;padding:7px 14px;}",
+    ".br{border-bottom:1px solid #f1f5f9;}",
+    ".br:hover{background:#f8fafc;}",
+    ".bn{padding:9px 14px;font-size:12px;font-weight:600;color:#0f172a;line-height:1.4;}",
+    ".bc{font-size:10px;color:#94a3b8;font-weight:400;}",
+    ".c-paid{padding:8px 5px;text-align:center;font-size:11px;color:#15803d;font-weight:600;background:#f0fdf4;}",
+    ".c-pend{padding:8px 5px;text-align:center;font-size:9px;color:#d97706;font-weight:700;background:#fffbeb;}",
+    ".c-fut{padding:8px 5px;text-align:center;background:#f8fafc;}",
+    ".c-tot{padding:8px 5px;text-align:center;background:#1a3260;color:#fff;font-weight:700;font-size:11px;}",
+    ".tr td{padding:9px 5px;font-size:11px;font-weight:700;text-align:center;background:#0f2044;color:#93c5fd;border-top:2px solid #1e3a5f;}",
+    ".tr td:first-child{text-align:left;padding-left:14px;font-size:10px;text-transform:uppercase;}",
+    ".tc-p{color:#86efac!important;}",
+    ".tc-c{color:#fde68a!important;}",
+    ".tc-f{color:rgba(147,197,253,.3)!important;}",
+    ".tc-tot{background:#1a3260!important;color:#fff!important;}",
+    ".by{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;margin-left:4px;vertical-align:middle;}",
+    ".ba{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;margin-left:3px;}",
+    ".bm{font-size:8px;font-weight:700;padding:1px 5px;border-radius:20px;background:#fffbeb;color:#d97706;border:1px solid #fde68a;margin-left:3px;}",
+    ".act{text-align:center;padding:18px;background:#fff;border-top:1px solid #e2e8f0;}",
+    ".bp{font-size:11px;font-weight:700;padding:10px 22px;border-radius:6px;border:none;background:#0f2044;color:#fff;cursor:pointer;margin:0 4px;}",
+    ".bc2{font-size:11px;font-weight:700;padding:10px 22px;border-radius:6px;background:#f0f4f8;color:#334155;border:1px solid #cbd5e1;cursor:pointer;margin:0 4px;}",
+    ".foot{text-align:center;padding:14px;font-size:10px;color:#94a3b8;}",
+    "@media print{.filters,.act{display:none!important;}body{background:#fff;}",
+    ".cover,.pr-row,.tr,thead{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}"
+  ].join("");
+}
+
+function stat(label, val, sub) {
+  return "<div><div class=\"sv\">" + label + "</div><div class=\"sn\">" + val + "</div><div class=\"ss\">" + sub + "</div></div>";
+}
+
+function sw(bg, border) {
+  return "<span class=\"sw\" style=\"background:" + bg + ";border:1px solid " + border + ";\"></span>";
+}
+
 // ── SEED DATA ─────────────────────────────────────────────────
 const TASK_SEED=[
   {text:'Pick up Enterprise rental car',cat:'vehicles',tag:'urgent',date:'May 8',done:false,createdAt:1},
