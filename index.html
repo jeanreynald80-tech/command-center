@@ -1296,12 +1296,17 @@ window.generateBillsReport = function() {
   // Serialize rows for client
   var rj = JSON.stringify(rows.map(function(b) {
     var mo = {}; for (var k in b.months) mo[k] = b.months[k];
+    var bt = b.btype || 'yearly';
+    var dl = b.dueLabel || '';
+    if (!dl && bt !== 'regular' && b.month) {
+      dl = MN[b.month-1] + ' ' + b.day;
+    }
     return {
       key:b.key, short:b.short, property:b.property,
-      btype:b.btype || 'yearly',
+      btype:bt,
       auto:b.auto, card:b.card||'', currency:b.currency||'',
       months:mo,
-      dueLabel:b.dueLabel || (b.btype==='yearly' && b.month ? (MN[b.month-1] + ' ' + b.day) : '')
+      dueLabel:dl
     };
   }));
 
@@ -1385,7 +1390,7 @@ window.generateBillsReport = function() {
     "    var rt=Object.values(b.months).reduce(function(s,a){return s+bu(b,a);},0);",
     "    var isAnn=b.btype!=='regular';",
     "    var tb=isAnn?'<span class=\"by\">ANNUAL</span>':'';" ,
-    "    var dl=isAnn&&b.dueLabel?'<span class=\"due-lbl\">Due: '+b.dueLabel+'</span><br>':'';" ,
+    "    var dl=isAnn?'<span class=\"due-lbl\">Due: '+(b.dueLabel||'TBD')+'</span><br>':'';" ,
     "    var ab=b.auto===true?'<span class=\"ba\">AUTO</span>':b.auto===false?'<span class=\"bm\">MANUAL</span>':'';" ,
     "    h+='<tr class=\"br\"><td class=\"bn\">'+b.short+tb+ab+'<br>'+dl+'<span class=\"bc\">'+b.card+'</span></td>';",
     "    for(var m=1;m<=12;m++)h+=cell(b,m);",
