@@ -1237,7 +1237,7 @@ window.generateBillsReport = function() {
     if (bill.btype === "yearly") return bill.month === month ? bill.amount : undefined;
     if (bill.btype === "multi-yearly") {
       var mm = bill.multiMonths && bill.multiMonths[month];
-      return mm ? mm.amount : undefined;
+      return mm !== undefined ? mm.amount : undefined;
     }
     return undefined;
   }
@@ -1252,6 +1252,27 @@ window.generateBillsReport = function() {
     for (var m = 1; m <= 12; m++) mo[m] = getAmt(b, m);
     return Object.assign({}, b, {months: mo});
   });
+
+  // Deduplicate: merge rows with same short+property into one, combining month amounts
+  var rowMap = {};
+  var rowOrder = [];
+  rows.forEach(function(b) {
+    var dk = b.property + '||' + b.short;
+    if (rowMap[dk]) {
+      // Merge months — if new row has a value for a month, use it
+      for (var m = 1; m <= 12; m++) {
+        if (b.months[m] !== null && b.months[m] !== undefined) {
+          rowMap[dk].months[m] = b.months[m];
+        }
+      }
+      // Merge dueLabel
+      if (b.dueLabel && !rowMap[dk].dueLabel) rowMap[dk].dueLabel = b.dueLabel;
+    } else {
+      rowMap[dk] = Object.assign({}, b);
+      rowOrder.push(dk);
+    }
+  });
+  rows = rowOrder.map(function(dk){ return rowMap[dk]; });
 
   function toUSD(b, a) {
     if (a === null || a === undefined) return 0;
