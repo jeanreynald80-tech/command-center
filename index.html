@@ -399,8 +399,10 @@ Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSea
 Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsGroupBy=v;}});
 Object.defineProperty(window,'billsStatusFilter',{get:()=>billsStatusFilter,set:v=>{billsStatusFilter=v;}});
 Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
+window.setBillsView=function(v){billsView=v;renderBills();};
 // Custom bill day overrides stored in memory (and localStorage for persistence)
 let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
+window.showDayEdit=function(key,currentDay){const d=parseInt(prompt('Change due day (1-31):',''+currentDay));if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}};
 window.saveBillDayOverride = function(key, day) {
   billDayOverrides[key] = parseInt(day);
   localStorage.setItem('billDayOverrides', JSON.stringify(billDayOverrides));
