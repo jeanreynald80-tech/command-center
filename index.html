@@ -392,12 +392,13 @@ function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDa
 function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 
 let activeTab='home',activeTaskCat='all',activeExpSec='florida';
-let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='';
+let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list';
 Object.defineProperty(window,'billsMonth',{get:()=>billsMonth,set:v=>{billsMonth=v;}});
 Object.defineProperty(window,'billsPropFilter',{get:()=>billsPropFilter,set:v=>{billsPropFilter=v;}});
 Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSearch=v;}});
 Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsGroupBy=v;}});
 Object.defineProperty(window,'billsStatusFilter',{get:()=>billsStatusFilter,set:v=>{billsStatusFilter=v;}});
+Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
 // Custom bill day overrides stored in memory (and localStorage for persistence)
 let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
 window.saveBillDayOverride = function(key, day) {
@@ -998,27 +999,36 @@ window.renderBills=function renderBills(){
   const today=new Date();
   const todayDay=today.getDate();
   const todayMonth=today.getMonth()+1;
+  const MN_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-  // Merge all bills for this month with effective day and amount overrides
-  let allBills=[
-    ...REGULAR_BILLS.map(b=>({...b,amount:b.amounts[billsMonth-1],btype:'regular'})).filter(b=>b.amount!==undefined),
-    ...YEARLY_BILLS.filter(b=>b.month===billsMonth).map(b=>({...b,btype:'yearly'}))
-  ].map(b=>{
-    const effDay=billDayOverrides[b.key]!==undefined?billDayOverrides[b.key]:b.day;
-    const amtKey=billAmountKey(b.key,billsMonth,year);
-    const overrideAmt=billAmountOverrides[amtKey];
-    // If override exists use it; otherwise use seed amount
-    const effectiveAmount=overrideAmt!==undefined?overrideAmt:b.amount;
-    return{...b,effectiveDay:effDay,amount:effectiveAmount,hasOverrideAmt:overrideAmt!==undefined};
-  });
-
-  if(billsPropFilter){allBills=allBills.filter(b=>b.property===billsPropFilter);}
-  if(billsSearch){
-    const q=billsSearch.toLowerCase();
-    allBills=allBills.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));
+  function getBillsForMonth(month){
+    let bills=[
+      ...REGULAR_BILLS.map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
+      ...YEARLY_BILLS.filter(b=>{
+        if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month]!==undefined;
+        return b.month===month;
+      }).map(b=>{
+        if(b.btype==='multi-yearly'){
+          const mm=b.multiMonths[month];
+          return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day};
+        }
+        return {...b};
+      })
+    ].map(b=>{
+      const effDay=billDayOverrides[b.key]!==undefined?billDayOverrides[b.key]:b.day;
+      const amtKey=billAmountKey(b.key,month,year);
+      const overrideAmt=billAmountOverrides[amtKey];
+      const effectiveAmount=overrideAmt!==undefined?overrideAmt:b.amount;
+      return{...b,effectiveDay:effDay,amount:effectiveAmount,forMonth:month};
+    });
+    if(billsPropFilter) bills=bills.filter(b=>b.property===billsPropFilter);
+    if(billsSearch){const q=billsSearch.toLowerCase();bills=bills.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));}
+    if(billsStatusFilter==='pending') bills=bills.filter(b=>!isAmountPaid(b));
+    if(billsStatusFilter==='paid') bills=bills.filter(b=>isAmountPaid(b));
+    return bills;
   }
-  if(billsStatusFilter==='pending') allBills=allBills.filter(b=>!isAmountPaid(b));
-  if(billsStatusFilter==='paid') allBills=allBills.filter(b=>isAmountPaid(b));
+
+  const allBills=getBillsForMonth(billsMonth);
 
   function billUSD(b){
     if(b.amount===null||b.amount===undefined)return 0;
@@ -1028,151 +1038,169 @@ window.renderBills=function renderBills(){
   const pendingBills=allBills.filter(b=>!isAmountPaid(b));
   const totalDue=allBills.reduce((s,b)=>s+billUSD(b),0);
   const totalPaid=paidBills.reduce((s,b)=>s+billUSD(b),0);
-  const totalRemaining=pendingBills.length; // count of pending items
+
+  function fmtAmt(b){
+    if(b.amount===null||b.amount===undefined)return null;
+    return b.currency==='CRC'?'\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString():'$'+parseFloat(b.amount).toFixed(2);
+  }
 
   function dayEditWidget(b){
     const d=b.effectiveDay||b.day||'?';
-    return `<span onclick="event.stopPropagation();showDayEdit('${b.key}',${d})"
-      style="font-family:'DM Mono',monospace;font-size:10px;color:var(--gold);cursor:pointer;text-decoration:underline dotted;padding:1px 4px;border-radius:3px;"
-      title="Click to change due day">Day ${d} ✎</span>`;
+    return '<span onclick="event.stopPropagation();showDayEdit(\''+b.key+'\','+d+')" style="font-size:10px;color:var(--accent);cursor:pointer;text-decoration:underline dotted;padding:1px 4px;border-radius:3px;" title="Click to change due day">Day '+d+' \u270e</span>';
   }
 
-  // amount present (not null/undefined) = PAID; null/undefined = PENDING
-  function isAmountPaid(b){ return b.amount!==null&&b.amount!==undefined; }
+  const vToggle='<div style="display:flex;gap:6px;align-items:center;">'+
+    '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">View</span>'+
+    '<button onclick="window.billsView=\'list\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==='list'?'var(--accent)':'var(--border)')+';background:'+(billsView==='list'?'var(--blue-bg)':'#fff')+';color:'+(billsView==='list'?'var(--accent)':'var(--text3)')+';cursor:pointer;">\u2630 List</button>'+
+    '<button onclick="window.billsView=\'calendar\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==='calendar'?'var(--accent)':'var(--border)')+';background:'+(billsView==='calendar'?'var(--blue-bg)':'#fff')+';color:'+(billsView==='calendar'?'var(--accent)':'var(--text3)')+';cursor:pointer;">\uD83D\uDCC5 Calendar</button>'+
+    '</div>';
+
+  let html='<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;">'+
+    '<div>'+
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:var(--text3);margin-bottom:4px;">Bill Tracker \u00b7 '+MONTH_NAMES[billsMonth-1]+' '+year+'</div>'+
+    '<div style="font-size:36px;font-weight:700;color:var(--text);line-height:1;">$'+totalDue.toFixed(2)+'</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:4px;">$'+totalPaid.toFixed(2)+' confirmed paid \u00b7 <strong style="color:'+(pendingBills.length>0?'var(--red)':'var(--green)')+';">'+pendingBills.length+' pending</strong></div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">'+vToggle+
+    '<button onclick="generateBillsReport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--navy);color:#fff;display:inline-flex;align-items:center;gap:6px;">\uD83D\uDCC4 Report</button>'+
+    '</div></div>';
+
+  html+='<div style="display:flex;align-items:center;gap:10px;background:#f0f8f2;border:1px solid #a5d6a7;border-radius:8px;padding:8px 14px;margin-bottom:14px;flex-wrap:wrap;">'+
+    '<span style="font-size:10px;color:#1a4a2a;">\uD83C\uDF0E Exchange rate:</span>'+
+    '<span style="font-family:\'DM Mono\',monospace;font-size:12px;font-weight:600;color:#1a4a2a;">$1 USD = \u20a1'+Math.round(usdCRC).toLocaleString()+' CRC</span>'+
+    '<button onclick="fetchExchangeRate().then(()=>renderBills())" style="font-size:9px;font-weight:700;padding:5px 10px;border-radius:6px;border:1px solid #a5d6a7;background:transparent;color:#1a4a2a;cursor:pointer;">\u21bb Refresh</button>'+
+    '<span style="font-size:10px;color:var(--text3);margin-left:auto;">'+(usdCRCLastFetched?'Updated '+new Date(usdCRCLastFetched).toLocaleTimeString():'Using fallback rate')+'</span>'+
+    '</div>';
+
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'+
+    '<input id="bills-search-inp" type="text" class="filter-sel" placeholder="Search bill or property..." value="'+billsSearch.replace(/"/g,'&quot;')+'" oninput="window.billsSearch=this.value;window.renderBills()" style="min-width:180px;">'+
+    ((billsPropFilter||billsSearch||billsStatusFilter)?'<button class="filter-clear" onclick="window.billsPropFilter=\'\';window.billsSearch=\'\';window.billsStatusFilter=\'\';window.renderBills();window.renderSidebar();">\u2715 Clear filters</button>':'')+
+    '</div>';
+
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">'+
+    '<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px;">'+
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);margin-bottom:6px;">Total Bills</div>'+
+    '<div style="font-size:26px;font-weight:700;color:var(--text);">'+allBills.length+'</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:2px;">$'+totalDue.toFixed(0)+' USD equiv</div></div>'+
+    '<div onclick="window.billsStatusFilter=window.billsStatusFilter===\'paid\'?\'\':\' paid\';window.renderBills();" style="background:'+(billsStatusFilter==='paid'?'#f0fdf4':'#fff')+';border:2px solid '+(billsStatusFilter==='paid'?'#16a34a':'#bbf7d0')+';border-radius:8px;padding:16px;cursor:pointer;">'+
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#16a34a;margin-bottom:6px;">\u2713 Paid'+(billsStatusFilter==='paid'?' \u00b7 FILTERED':'')+'</div>'+
+    '<div style="font-size:26px;font-weight:700;color:#16a34a;">'+paidBills.length+'</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:2px;">$'+totalPaid.toFixed(0)+' \u00b7 tap to filter</div></div>'+
+    '<div onclick="window.billsStatusFilter=window.billsStatusFilter===\'pending\'?\'\':\' pending\';window.renderBills();" style="background:'+(billsStatusFilter==='pending'?'#fef2f2':'#fff')+';border:2px solid '+(billsStatusFilter==='pending'?'var(--red)':pendingBills.length>0?'#fca5a5':'var(--border)')+';border-radius:8px;padding:16px;cursor:pointer;">'+
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:'+(pendingBills.length>0?'#b91c1c':'var(--text3)')+';margin-bottom:6px;">Pending'+(billsStatusFilter==='pending'?' \u00b7 FILTERED':'')+'</div>'+
+    '<div style="font-size:26px;font-weight:700;color:'+(pendingBills.length>0?'var(--red)':'var(--green)')+';">'+pendingBills.length+'</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:2px;">tap to filter</div></div>'+
+    '</div>';
+
+  // ── CALENDAR VIEW ──────────────────────────────────────────
+  if(billsView==='calendar'){
+    html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">';
+    for(let m=1;m<=12;m++){
+      const isCur=m===todayMonth;
+      const isFut=m>todayMonth;
+      const isSelected=m===billsMonth;
+      const mBills=getBillsForMonth(m);
+      const mPaid=mBills.filter(b=>isAmountPaid(b));
+      const mPend=mBills.filter(b=>!isAmountPaid(b));
+      const mTotal=mBills.reduce((s,b)=>s+billUSD(b),0);
+
+      let itemsHtml=mBills.length===0
+        ?'<div style="padding:10px 14px;font-size:11px;color:var(--text3);text-align:center;">No bills due</div>'
+        :mBills.sort((a,b)=>(a.effectiveDay||0)-(b.effectiveDay||0)).map(b=>{
+          const paid=isAmountPaid(b);
+          const overdue=!paid&&isCur&&(b.effectiveDay||0)<todayDay;
+          const amtStr=fmtAmt(b);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--surface2);gap:8px;">'+
+            '<div style="min-width:0;">'+
+            '<div style="font-size:11px;font-weight:'+(paid?'400':'600')+';color:'+(paid?'var(--text3)':'var(--text)')+';text-decoration:'+(paid?'line-through':'none')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+b.short+'</div>'+
+            '<div style="font-size:9px;color:'+(overdue?'var(--red)':'var(--text3)')+';margin-top:1px;">Day '+(b.effectiveDay||'?')+(overdue?' \u26a0':'')+' \u00b7 '+b.property+'</div>'+
+            '</div>'+
+            '<span style="font-size:11px;font-weight:700;white-space:nowrap;color:'+(paid?'var(--green)':overdue?'var(--red)':'var(--amber)')+';">'+(amtStr||(isFut?'':'PEND'))+'</span>'+
+            '</div>';
+        }).join('');
+
+      html+='<div onclick="window.billsMonth='+m+';window.billsView=\'list\';window.renderBills();window.renderSidebar();" style="background:#fff;border:2px solid '+(isSelected?'var(--accent)':isCur?'#93c5fd':'var(--border)')+';border-radius:10px;overflow:hidden;cursor:pointer;transition:all .15s;box-shadow:'+(isSelected?'0 4px 16px rgba(37,99,235,.15)':'0 1px 4px rgba(0,0,0,.05)')+';">'+
+        '<div style="background:'+(isSelected?'var(--navy)':isCur?'#1e3a5f':'#f0f4f8')+';padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">'+
+        '<span style="font-size:13px;font-weight:700;color:'+(isSelected||isCur?'#fff':'var(--text)')+';">'+MN_FULL[m-1]+(isCur?' \u25c4':'')+'</span>'+
+        '<span style="font-size:12px;font-weight:700;color:'+(isSelected||isCur?'#93c5fd':'var(--text2)')+';">$'+mTotal.toFixed(0)+'</span>'+
+        '</div>'+
+        '<div style="padding:8px 0;max-height:200px;overflow-y:auto;">'+itemsHtml+'</div>'+
+        '<div style="padding:7px 12px;background:var(--surface2);display:flex;justify-content:space-between;font-size:10px;font-weight:600;">'+
+        '<span style="color:var(--green);">\u2713 '+mPaid.length+' paid</span>'+
+        '<span style="color:'+(mPend.length>0?'var(--red)':'var(--text3)')+';">'+mPend.length+' pending</span>'+
+        '</div></div>';
+    }
+    html+='</div>';
+    html+='<div style="margin-top:12px;font-size:11px;color:var(--text3);text-align:center;">Click any month to switch to list view for that month</div>';
+    document.getElementById('task-area').innerHTML=html;
+    const inp=document.getElementById('bills-search-inp');
+    if(inp&&billsSearch){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
+    return;
+  }
+
+  // ── LIST VIEW ─────────────────────────────────────────────
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'+
+    '<select class="filter-sel" onchange="window.billsMonth=parseInt(this.value);window.billsPropFilter=\'\';window.renderBills();window.renderSidebar();">'+
+    MONTH_NAMES.map((m,i)=>'<option value="'+(i+1)+'"'+(billsMonth===i+1?' selected':'')+'>'+m+'</option>').join('')+
+    '</select>'+
+    '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Group by</span>'+
+    '<button onclick="window.billsGroupBy=\'day\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsGroupBy==='day'?'var(--accent)':'var(--border)')+';background:'+(billsGroupBy==='day'?'var(--blue-bg)':'#fff')+';color:'+(billsGroupBy==='day'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Day</button>'+
+    '<button onclick="window.billsGroupBy=\'property\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsGroupBy==='property'?'var(--accent)':'var(--border)')+';background:'+(billsGroupBy==='property'?'var(--blue-bg)':'#fff')+';color:'+(billsGroupBy==='property'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Property</button>'+
+    '</div>';
+
+  function grpHdr(label,bills){
+    const grpTotal=bills.reduce((s,b)=>s+billUSD(b),0);
+    const grpPaidCount=bills.filter(b=>isAmountPaid(b)).length;
+    const grpPendingCount=bills.filter(b=>!isAmountPaid(b)).length;
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--navy);border-radius:8px 8px 0 0;margin-top:20px;margin-bottom:1px;">'+
+      '<div style="display:flex;align-items:center;gap:10px;">'+
+      '<span style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;">'+label+'</span>'+
+      '<span style="font-size:10px;background:rgba(255,255,255,.15);border-radius:20px;padding:1px 8px;color:rgba(255,255,255,.7);">'+bills.length+'</span>'+
+      '</div>'+
+      '<div style="text-align:right;">'+
+      '<div style="font-size:18px;font-weight:700;color:#93c5fd;">$'+grpTotal.toFixed(2)+'</div>'+
+      '<div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:1px;">'+grpPaidCount+' paid \u00b7 '+grpPendingCount+' pending</div>'+
+      '</div></div>';
+  }
+
+  function subHdr(label,count,isPaid){
+    return '<div style="padding:6px 14px;background:'+(isPaid?'var(--surface2)':'#fffbeb')+';border:1px solid '+(isPaid?'var(--border)':'#fcd34d')+';border-top:none;display:flex;align-items:center;gap:8px;">'+
+      '<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:'+(isPaid?'var(--text3)':'#92400e')+';">'+label+'</span>'+
+      '<span style="font-size:9px;background:'+(isPaid?'var(--border)':'#fcd34d')+';border-radius:20px;padding:1px 7px;color:'+(isPaid?'var(--text2)':'#92400e')+';">'+count+'</span>'+
+      '</div>';
+  }
 
   function billRow(b){
     const amtPaid=isAmountPaid(b);
     const effDay=b.effectiveDay||b.day;
     const isOverdue=!amtPaid&&billsMonth===todayMonth&&effDay<todayDay;
     const isCRC=b.currency==='CRC';
-    const sym=isCRC?'&#8353;':'$';
-    // Status badge
     const statusBadge=amtPaid
-      ? `<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">✓ PAID</span>`
-      : `<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:${isOverdue?'#fef2f2':'#fff8e1'};color:${isOverdue?'#b91c1c':'#92400e'};border:1px solid ${isOverdue?'#fca5a5':'#fcd34d'};">${isOverdue?'⚠ OVERDUE':'PENDING'}</span>`;
-    // Amount display + action button
-    let amtDisplay, actionBtn;
+      ?'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u2713 PAID</span>'
+      :'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:'+(isOverdue?'#fef2f2':'#fff8e1')+';color:'+(isOverdue?'#b91c1c':'#92400e')+';border:1px solid '+(isOverdue?'#fca5a5':'#fcd34d')+';">'+(isOverdue?'\u26a0 OVERDUE':'PENDING')+'</span>';
+    let amtDisplay,actionBtn;
     if(!amtPaid){
       amtDisplay='';
-      actionBtn=`<button onclick="event.stopPropagation();enterBillAmount('${b.key}',${billsMonth},${year},${isCRC})"
-        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:1px;border:1px solid var(--gold);background:var(--ink);color:var(--gold);cursor:pointer;white-space:nowrap;">
-        + Enter Amount
-      </button>`;
+      actionBtn='<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+billsMonth+','+year+','+isCRC+')" style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap;">+ Enter Amount</button>';
     }else if(isCRC){
       const usdEquiv=crcToUSD(parseFloat(b.amount));
-      amtDisplay=`<div style="text-align:right;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:var(--text3);">&#8353;${Math.round(parseFloat(b.amount)).toLocaleString()}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:1px;">&#8776; $${usdEquiv.toFixed(2)}</div>
-      </div>`;
-      actionBtn=`<button onclick="event.stopPropagation();clearBillAmount('${b.key}',${billsMonth},${year})"
-        style="font-family:'Montserrat',sans-serif;font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 8px;border-radius:1px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">
-        ✕ clear
-      </button>`;
+      amtDisplay='<div style="text-align:right;"><div style="font-size:18px;font-weight:700;color:var(--text3);">\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()+'</div><div style="font-size:10px;color:var(--text3);">\u2248 $'+usdEquiv.toFixed(2)+'</div></div>';
+      actionBtn='<button onclick="event.stopPropagation();clearBillAmount(\''+b.key+'\','+billsMonth+','+year+')" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">\u2715 clear</button>';
     }else{
-      amtDisplay=`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:var(--text3);">$${parseFloat(b.amount).toFixed(2)}</div>`;
-      actionBtn=`<button onclick="event.stopPropagation();clearBillAmount('${b.key}',${billsMonth},${year})"
-        style="font-family:'Montserrat',sans-serif;font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 8px;border-radius:1px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">
-        ✕ clear
-      </button>`;
+      amtDisplay='<div style="font-size:18px;font-weight:700;color:var(--text3);">$'+parseFloat(b.amount).toFixed(2)+'</div>';
+      actionBtn='<button onclick="event.stopPropagation();clearBillAmount(\''+b.key+'\','+billsMonth+','+year+')" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">\u2715 clear</button>';
     }
-    const autoBadge=b.auto!==undefined?`<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:${b.auto?'#e8f5e9':'#fff8e1'};color:${b.auto?'#2e7d32':'#f57f17'};border:1px solid ${b.auto?'#a5d6a7':'#ffe082'};">${b.auto?'AUTO':'MANUAL'}</span>`:'';
-    const cardBadge=b.card?`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">${b.card}</span>`:'';
-    const propBadge=billsGroupBy!=='property'?`<span style="font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f0fe;color:#1a3a5c;border:1px solid #c0d4e8;">${b.property}</span>`:'';
-    const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">&#8353; CRC</span>':'';
-    return`<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:${amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff'};border:1px solid ${isOverdue&&!amtPaid?'#fca5a5':'var(--border)'};border-top:none;transition:background .12s;opacity:${amtPaid?'.8':'1'};">
-      <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          ${statusBadge}
-          <span style="font-size:13px;font-weight:${amtPaid?'400':'600'};color:${amtPaid?'var(--text3)':'var(--text)'};text-decoration:${amtPaid?'line-through':'none'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.short}</span>
-        </div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">${propBadge}${autoBadge}${cardBadge}${dayEditWidget(b)}${crcBadge}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0;">${amtDisplay}${actionBtn}</div>
-    </div>`;
-  }
-
-  function grpHdr(label,bills){
-    const grpTotal=bills.reduce((s,b)=>s+billUSD(b),0);
-    const grpPaidCount=bills.filter(b=>isAmountPaid(b)).length;
-    const grpPendingCount=bills.filter(b=>!isAmountPaid(b)).length;
-    return`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--ink);border-radius:2px 2px 0 0;margin-top:20px;margin-bottom:1px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-family:'Montserrat',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);">${label}</span>
-        <span style="font-family:'DM Mono',monospace;font-size:10px;background:rgba(184,151,106,.15);border-radius:20px;padding:1px 8px;color:rgba(184,151,106,.7);">${bills.length}</span>
-      </div>
-      <div style="text-align:right;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:300;color:var(--gold2);">$${grpTotal.toFixed(2)}</div>
-        <div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:1px;">${grpPaidCount} paid · ${grpPendingCount} pending</div>
-      </div>
-    </div>`;
-  }
-
-  // ── summary header ────────────────────────────────────────
-  let html=`
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-      <div>
-        <div style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:var(--text3);margin-bottom:4px;">Bill Tracker · ${MONTH_NAMES[billsMonth-1]} ${year}</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-size:40px;font-weight:300;color:var(--text);line-height:1;">$${totalDue.toFixed(2)}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">$${totalPaid.toFixed(2)} confirmed paid · <strong style="color:${pendingBills.length>0?'var(--red)':'var(--green)'};">${pendingBills.length} pending</strong></div>
-      </div>
-      <button onclick="generateBillsReport()" style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;padding:10px 18px;border-radius:1px;border:none;cursor:pointer;background:var(--ink);color:var(--gold);display:inline-flex;align-items:center;gap:6px;align-self:flex-start;">📄 Report</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;background:#f0f8f2;border:1px solid #a5d6a7;border-radius:2px;padding:8px 14px;margin-bottom:14px;flex-wrap:wrap;">
-      <span style="font-family:'DM Mono',monospace;font-size:10px;color:#1a4a2a;">&#127758; Exchange rate:</span>
-      <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#1a4a2a;">$1 USD = &#8353;${Math.round(usdCRC).toLocaleString()} CRC</span>
-      <button onclick="fetchExchangeRate().then(()=>renderBills())"
-        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:1px;border:1px solid #a5d6a7;background:transparent;color:#1a4a2a;cursor:pointer;">&#8635; Refresh</button>
-      <span style="font-size:10px;color:var(--text3);margin-left:auto;">${usdCRCLastFetched?'Updated '+new Date(usdCRCLastFetched).toLocaleTimeString():'Using fallback rate'}</span>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
-      <select class="filter-sel" onchange="window.billsMonth=parseInt(this.value);window.billsPropFilter='';window.renderBills();window.renderSidebar();">
-        ${MONTH_NAMES.map((m,i)=>`<option value="${i+1}"${billsMonth===i+1?' selected':''}>${m}</option>`).join('')}
-      </select>
-      <input id="bills-search-inp" type="text" class="filter-sel" placeholder="Search bill or property..." value="${billsSearch.replace(/"/g,'&quot;')}"
-        oninput="window.billsSearch=this.value;window.renderBills()" style="min-width:180px;">
-      <span style="font-family:'DM Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);">Group by</span>
-      <button onclick="window.billsGroupBy='day';window.renderBills()"
-        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;border-radius:1px;border:1px solid ${billsGroupBy==='day'?'var(--gold)':'var(--border)'};background:${billsGroupBy==='day'?'var(--ink)':'transparent'};color:${billsGroupBy==='day'?'var(--gold)':'var(--text2)'};cursor:pointer;">
-        Day
-      </button>
-      <button onclick="window.billsGroupBy='property';window.renderBills()"
-        style="font-family:'Montserrat',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;border-radius:1px;border:1px solid ${billsGroupBy==='property'?'var(--gold)':'var(--border)'};background:${billsGroupBy==='property'?'var(--ink)':'transparent'};color:${billsGroupBy==='property'?'var(--gold)':'var(--text2)'};cursor:pointer;">
-        Property
-      </button>
-      ${(billsPropFilter||billsSearch)?`<button class="filter-clear" onclick="window.billsPropFilter='';window.billsSearch='';window.renderBills();window.renderSidebar();">&#10005; Clear</button>`:''}
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
-      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:16px;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);margin-bottom:6px;">Total Bills</div>
-        <div style="font-size:26px;font-weight:700;color:var(--text);">${allBills.length}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${totalDue.toFixed(0)} USD equiv</div>
-      </div>
-      <div onclick="window.billsStatusFilter=window.billsStatusFilter==='paid'?'':'paid';window.renderBills();"
-        style="background:${billsStatusFilter==='paid'?'#f0fdf4':'#fff'};border:2px solid ${billsStatusFilter==='paid'?'#16a34a':'#bbf7d0'};border-radius:8px;padding:16px;cursor:pointer;transition:all .15s;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#16a34a;margin-bottom:6px;">✓ Paid${billsStatusFilter==='paid'?' · FILTERED':''}</div>
-        <div style="font-size:26px;font-weight:700;color:#16a34a;">${paidBills.length}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">$${totalPaid.toFixed(0)} · tap to filter</div>
-      </div>
-      <div onclick="window.billsStatusFilter=window.billsStatusFilter==='pending'?'':'pending';window.renderBills();"
-        style="background:${billsStatusFilter==='pending'?'#fef2f2':'#fff'};border:2px solid ${billsStatusFilter==='pending'?'var(--red)':pendingBills.length>0?'#fca5a5':'var(--border)'};border-radius:8px;padding:16px;cursor:pointer;transition:all .15s;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${pendingBills.length>0?'#b91c1c':'var(--text3)'};margin-bottom:6px;">Pending${billsStatusFilter==='pending'?' · FILTERED':''}</div>
-        <div style="font-size:26px;font-weight:700;color:${pendingBills.length>0?'var(--red)':'var(--green)'};">${pendingBills.length}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px;">tap to filter</div>
-      </div>
-    </div>`;
-
-  function sortGroup(bills){
-    // Pending (no amount) first sorted by day, then Paid sorted by day
-    const pending=bills.filter(b=>!isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
-    const paid=bills.filter(b=>isAmountPaid(b)).sort((a,b)=>a.effectiveDay-b.effectiveDay);
-    return [...pending,...paid];
-  }
-
-  function subHdr(label,count,isPaid){
-    return`<div style="padding:6px 14px;background:${isPaid?'var(--surface2)':'#fffbeb'};border:1px solid ${isPaid?'var(--border)':'#fcd34d'};border-top:none;display:flex;align-items:center;gap:8px;">
-      <span style="font-family:'DM Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${isPaid?'var(--text3)':'#92400e'};">${label}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:9px;background:${isPaid?'var(--border)':'#fcd34d'};border-radius:20px;padding:1px 7px;color:${isPaid?'var(--text2)':'#92400e'};">${count}</span>
-    </div>`;
+    const autoBadge=b.auto!==undefined?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:'+(b.auto?'#e8f5e9':'#fff8e1')+';color:'+(b.auto?'#2e7d32':'#f57f17')+';border:1px solid '+(b.auto?'#a5d6a7':'#ffe082')+';">'+(b.auto?'AUTO':'MANUAL')+'</span>':'';
+    const cardBadge=b.card?'<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">'+b.card+'</span>':'';
+    const propBadge=billsGroupBy!=='property'?'<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:20px;background:var(--blue-bg);color:var(--accent);border:1px solid var(--blue-border);">'+b.property+'</span>':'';
+    const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:'+(amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff')+';border:1px solid '+(isOverdue&&!amtPaid?'#fca5a5':'var(--border)')+';border-top:none;opacity:'+(amtPaid?'.8':'1')+';">'+
+      '<div style="flex:1;min-width:0;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+b.short+'</span></div>'+
+      '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+'</div>'+
+      '</div>';
   }
 
   function renderGroup(bills){
@@ -1184,45 +1212,29 @@ window.renderBills=function renderBills(){
     return out;
   }
 
-  if(allBills.length===0){
-    html+='<div class="empty">No bills match your filters.</div>';
-  }else if(billsGroupBy==='property'){
+  if(allBills.length===0){html+='<div class="empty">No bills match your filters.</div>';}
+  else if(billsGroupBy==='property'){
     const byProp={};
     allBills.forEach(b=>{if(!byProp[b.property])byProp[b.property]=[];byProp[b.property].push(b);});
     const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Personal'];
     const ordered=[...propOrder.filter(p=>byProp[p]),...Object.keys(byProp).filter(p=>!propOrder.includes(p))];
-    ordered.forEach(prop=>{
-      html+=grpHdr(prop,byProp[prop]);
-      html+=renderGroup(byProp[prop]);
-    });
+    ordered.forEach(prop=>{html+=grpHdr(prop,byProp[prop]);html+=renderGroup(byProp[prop]);});
   }else{
-    // Group by day
     const byDay={};
-    allBills.forEach(b=>{
-      const d=b.effectiveDay||b.day||0;
-      if(!byDay[d])byDay[d]=[];byDay[d].push(b);
-    });
+    allBills.forEach(b=>{const d=b.effectiveDay||b.day||0;if(!byDay[d])byDay[d]=[];byDay[d].push(b);});
     Object.keys(byDay).sort((a,b)=>parseInt(a)-parseInt(b)).forEach(day=>{
       const bills=byDay[day];
-      const label=parseInt(day)>0?`Day ${day} of ${MONTH_NAMES[billsMonth-1]}`:'No due day set';
-      html+=grpHdr(label,bills);
+      html+=grpHdr(parseInt(day)>0?'Day '+day+' of '+MONTH_NAMES[billsMonth-1]:'No due day set',bills);
       html+=renderGroup(bills);
     });
   }
 
   document.getElementById('task-area').innerHTML=html;
-  // Re-focus search box if it was being used (preserve cursor)
   const inp=document.getElementById('bills-search-inp');
   if(inp&&billsSearch){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
 };
 
-// Day edit popup
-window.showDayEdit=function(key,currentDay){
-  const existing=document.getElementById('day-edit-popup');
-  if(existing)existing.remove();
-  const d=parseInt(prompt(`Change due day for this bill (1-31):\nCurrent: Day ${currentDay}`,''+currentDay));
-  if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}
-};
+
 
 // ── BILLS REPORT ─────────────────────────────────────────────────────────────
 window.generateBillsReport = function() {
