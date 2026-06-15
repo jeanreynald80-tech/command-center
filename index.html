@@ -399,7 +399,7 @@ Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSea
 Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsGroupBy=v;}});
 Object.defineProperty(window,'billsStatusFilter',{get:()=>billsStatusFilter,set:v=>{billsStatusFilter=v;}});
 Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
-window.setBillsView=function(v){billsView=v;renderBills();};
+Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
 // Custom bill day overrides stored in memory (and localStorage for persistence)
 let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
 window.saveBillDayOverride = function(key, day) {
@@ -1052,9 +1052,9 @@ window.renderBills=function renderBills(){
 
   const vToggle='<div style="display:flex;gap:6px;align-items:center;">'+
     '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">View</span>'+
-    '<button onclick="setBillsView(\'list\')" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==\'list\'?\'var(--accent)\':\'var(--border)\')+';background:'+(billsView==\'list\'?\'var(--blue-bg)\':\'#fff\')+';color:'+(billsView==\'list\'?\'var(--accent)\':\'var(--text3)\')+';cursor:pointer;">☰ List</button>'+
-    '<button onclick="setBillsView(\'calendar\')" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==\'calendar\'?\'var(--accent)\':\'var(--border)\')+';background:'+(billsView==\'calendar\'?\'var(--blue-bg)\':\'#fff\')+';color:'+(billsView==\'calendar\'?\'var(--accent)\':\'var(--text3)\')+';cursor:pointer;">📅 Calendar</button>'+
-    '</div>'
+    '<button onclick="window.billsView=\'list\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==='list'?'var(--accent)':'var(--border)')+';background:'+(billsView==='list'?'var(--blue-bg)':'#fff')+';color:'+(billsView==='list'?'var(--accent)':'var(--text3)')+';cursor:pointer;">\u2630 List</button>'+
+    '<button onclick="window.billsView=\'calendar\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 16px;border-radius:6px;border:2px solid '+(billsView==='calendar'?'var(--accent)':'var(--border)')+';background:'+(billsView==='calendar'?'var(--blue-bg)':'#fff')+';color:'+(billsView==='calendar'?'var(--accent)':'var(--text3)')+';cursor:pointer;">\uD83D\uDCC5 Calendar</button>'+
+    '</div>';
 
   let html='<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;">'+
     '<div>'+
@@ -1120,7 +1120,7 @@ window.renderBills=function renderBills(){
             '</div>';
         }).join('');
 
-      html+='<div onclick="window.billsMonth='+m+';setBillsView(\'list\');window.renderSidebar();" style="background:#fff;border:2px solid '+(isSelected?'var(--accent)':isCur?'#93c5fd':'var(--border)')+';border-radius:10px;overflow:hidden;cursor:pointer;transition:all .15s;box-shadow:'+(isSelected?'0 4px 16px rgba(37,99,235,.15)':'0 1px 4px rgba(0,0,0,.05)')+';">'+
+      html+='<div onclick="window.billsMonth='+m+';window.billsView=\'list\';window.renderBills();window.renderSidebar();" style="background:#fff;border:2px solid '+(isSelected?'var(--accent)':isCur?'#93c5fd':'var(--border)')+';border-radius:10px;overflow:hidden;cursor:pointer;transition:all .15s;box-shadow:'+(isSelected?'0 4px 16px rgba(37,99,235,.15)':'0 1px 4px rgba(0,0,0,.05)')+';">'+
         '<div style="background:'+(isSelected?'var(--navy)':isCur?'#1e3a5f':'#f0f4f8')+';padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">'+
         '<span style="font-size:13px;font-weight:700;color:'+(isSelected||isCur?'#fff':'var(--text)')+';">'+MN_FULL[m-1]+(isCur?' \u25c4':'')+'</span>'+
         '<span style="font-size:12px;font-weight:700;color:'+(isSelected||isCur?'#93c5fd':'var(--text2)')+';">$'+mTotal.toFixed(0)+'</span>'+
