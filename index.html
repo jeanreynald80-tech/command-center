@@ -1003,6 +1003,7 @@ window.renderBills=function renderBills(){
   const todayDay=today.getDate();
   const todayMonth=today.getMonth()+1;
   const MN_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function isAmountPaid(b){return b.amount!==null&&b.amount!==undefined;}
 
   function getBillsForMonth(month){
     let bills=[
