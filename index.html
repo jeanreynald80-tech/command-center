@@ -536,6 +536,7 @@ window.navTo=function(tab,taskCat,expSec){
   closeDrawer();render();
 };
 window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
+window.showDayEdit=function(key,currentDay){const d=parseInt(prompt('Change due day (1-31):',''+currentDay));if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}};
 
 // ── RENDER ────────────────────────────────────────────────────
 function render(){
@@ -1001,6 +1002,7 @@ window.renderBills=function renderBills(){
   const todayDay=today.getDate();
   const todayMonth=today.getMonth()+1;
   const MN_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function isAmountPaid(b){return b.amount!==null&&b.amount!==undefined;}
 
   function getBillsForMonth(month){
     let bills=[
