@@ -533,9 +533,11 @@ window.navTo=function(tab,taskCat,expSec){
   if(expSec)activeExpSec=expSec;
   expCatFilter='';expMonthFilter='';
   if(tab==='bills'){billsSearch='';billsPropFilter='';billsStatusFilter='';}
-  closeDrawer();render();
+  window.closeDrawer();render();
 };
 window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
+window.renderSidebar=renderSidebar;
+window.renderBills=renderBills;
 window.showDayEdit=function(key,currentDay){const d=parseInt(prompt('Change due day (1-31):',''+currentDay));if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}};
 
 // ── RENDER ────────────────────────────────────────────────────
@@ -554,7 +556,7 @@ function render(){
   else{ab.style.display='none';renderExpenses();}
 }
 
-window.renderSidebar=function renderSidebar(){
+function renderSidebar(){
   const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
   const billsUnpaid=billsDueThisMonth.filter(b=>!isBillPaid(b.key,new Date().getMonth()+1,new Date().getFullYear())).length;
   const urgentCount=tasks.filter(t=>!t.done&&t.tag==='urgent').length;
@@ -996,7 +998,7 @@ async function toggleBillPaid(key,month,year,amount,name){
 }
 window.toggleBillPaid=toggleBillPaid;
 
-window.renderBills=function renderBills(){
+function renderBills(){
   const year=new Date().getFullYear();
   const today=new Date();
   const todayDay=today.getDate();
