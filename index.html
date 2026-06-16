@@ -282,6 +282,60 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     </div>
   </div>
 
+  <!-- ADD BILL MODAL -->
+  <div class="overlay" id="add-bill-modal">
+    <div class="modal">
+      <div class="modal-title">Add New Bill</div>
+      <div class="field"><label class="field-lbl">Bill Name</label><input class="field-inp" id="ab-name" type="text" placeholder="e.g. Internet, HOA, Insurance"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="field"><label class="field-lbl">Property</label>
+          <select class="field-inp" id="ab-property">
+            <option>Hampton</option><option>Pembroke Pines</option><option>Lithonia</option>
+            <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option>
+            <option>Haiti</option><option>Personal</option>
+          </select>
+        </div>
+        <div class="field"><label class="field-lbl">Due Day</label>
+          <input class="field-inp" id="ab-day" type="number" min="1" max="31" placeholder="e.g. 15">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="field"><label class="field-lbl">Amount (optional)</label>
+          <input class="field-inp" id="ab-amount" type="number" step="0.01" placeholder="Leave blank if unknown">
+        </div>
+        <div class="field"><label class="field-lbl">Currency</label>
+          <select class="field-inp" id="ab-currency"><option value="USD">USD ($)</option><option value="CRC">CRC (₡)</option></select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="field"><label class="field-lbl">Payment Method</label>
+          <input class="field-inp" id="ab-card" type="text" placeholder="e.g. Truist, Amex">
+        </div>
+        <div class="field"><label class="field-lbl">Payment Type</label>
+          <select class="field-inp" id="ab-auto"><option value="auto">Auto</option><option value="manual">Manual</option></select>
+        </div>
+      </div>
+      <div class="field"><label class="field-lbl">Frequency</label>
+        <select class="field-inp" id="ab-freq" onchange="toggleBillFreq()">
+          <option value="monthly">Monthly</option>
+          <option value="annual">Annual (one specific month)</option>
+        </select>
+      </div>
+      <div class="field" id="ab-month-row" style="display:none;"><label class="field-lbl">Month Due</label>
+        <select class="field-inp" id="ab-month">
+          <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+          <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+          <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+          <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeAddBillModal()">Cancel</button>
+        <button class="btn-save" onclick="submitAddBill()">Add Bill</button>
+      </div>
+    </div>
+  </div>
+
   <!-- EXPENSE EDIT -->
   <div class="overlay" id="exp-modal">
     <div class="modal">
@@ -360,8 +414,8 @@ import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app
 const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
 
-let db,tasksCol,expCol,litCol,billsCol,firebaseReady=false;
-let tasks=[],expenses=[],lithonia=[],billsPaid={};
+let db,tasksCol,expCol,litCol,billsCol,customBillsCol,firebaseReady=false;
+let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[];
 let usdCRC = 500;
 let usdCRCLastFetched = 0;
 
@@ -392,15 +446,63 @@ function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDa
 function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 
 let activeTab='home',activeTaskCat='all',activeExpSec='florida';
-let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list';
+let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list',billsTypeFilter='';
 Object.defineProperty(window,'billsMonth',{get:()=>billsMonth,set:v=>{billsMonth=v;}});
 Object.defineProperty(window,'billsPropFilter',{get:()=>billsPropFilter,set:v=>{billsPropFilter=v;}});
 Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSearch=v;}});
 Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsGroupBy=v;}});
 Object.defineProperty(window,'billsStatusFilter',{get:()=>billsStatusFilter,set:v=>{billsStatusFilter=v;}});
 Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
+Object.defineProperty(window,'billsTypeFilter',{get:()=>billsTypeFilter,set:v=>{billsTypeFilter=v;}});
 window.setBillsView=function(v){billsView=v;renderBills();};
 window.setBillsFilter=function(prop){activeTab='bills';billsPropFilter=prop;billsStatusFilter='';billsSearch='';closeDrawer();render();};
+
+// ── CUSTOM BILLS CRUD ─────────────────────────────────────
+window.openAddBillModal=function(){
+  document.getElementById('add-bill-modal').classList.add('open');
+  document.getElementById('ab-name').value='';
+  document.getElementById('ab-property').value='Hampton';
+  document.getElementById('ab-day').value='';
+  document.getElementById('ab-amount').value='';
+  document.getElementById('ab-card').value='Truist';
+  document.getElementById('ab-auto').value='manual';
+  document.getElementById('ab-freq').value='monthly';
+  document.getElementById('ab-month').value='1';
+  document.getElementById('ab-currency').value='USD';
+  document.getElementById('ab-month-row').style.display='none';
+  setTimeout(()=>document.getElementById('ab-name').focus(),100);
+};
+window.closeAddBillModal=function(){document.getElementById('add-bill-modal').classList.remove('open');};
+window.toggleBillFreq=function(){
+  const freq=document.getElementById('ab-freq').value;
+  document.getElementById('ab-month-row').style.display=freq==='monthly'?'none':'block';
+};
+window.submitAddBill=async function(){
+  const name=document.getElementById('ab-name').value.trim();
+  if(!name){alert('Please enter a bill name.');return;}
+  const bill={
+    short:name,
+    property:document.getElementById('ab-property').value,
+    day:parseInt(document.getElementById('ab-day').value)||1,
+    amount:document.getElementById('ab-amount').value?parseFloat(document.getElementById('ab-amount').value):null,
+    card:document.getElementById('ab-card').value,
+    auto:document.getElementById('ab-auto').value==='auto',
+    freq:document.getElementById('ab-freq').value,
+    month:parseInt(document.getElementById('ab-month').value)||1,
+    currency:document.getElementById('ab-currency').value,
+    btype:'custom',
+    createdAt:Date.now()
+  };
+  if(firebaseReady){
+    await addDoc(customBillsCol,bill);
+  }
+  closeAddBillModal();
+};
+window.deleteCustomBill=async function(id){
+  if(!confirm('Delete this bill?'))return;
+  if(firebaseReady)await deleteDoc(doc(db,'custombills',id));
+  else{customBills=customBills.filter(b=>b.id!==id);renderBills();}
+};
 // Custom bill day overrides stored in memory (and localStorage for persistence)
 let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
 window.showDayEdit=function(key,currentDay){const d=parseInt(prompt('Change due day (1-31):',''+currentDay));if(!isNaN(d)&&d>=1&&d<=31){saveBillDayOverride(key,d);}};
@@ -461,7 +563,7 @@ async function initApp(){
   try{
     const app=getApps().length?getApps()[0]:initializeApp(FB);
     db=getFirestore(app);
-    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');
+    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');
     firebaseReady=true;
     const[tSnap,eSnap,lSnap]=await Promise.all([getDocs(tasksCol),getDocs(expCol),getDocs(litCol)]);
     if(tSnap.empty){for(const t of TASK_SEED)await addDoc(tasksCol,t);}
@@ -476,6 +578,7 @@ async function initApp(){
     onSnapshot(expCol,snap=>{expenses=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses')renderExpenses();else render();});
     onSnapshot(litCol,snap=>{lithonia=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='expenses')renderExpenses();else render();});
     onSnapshot(billsCol,snap=>{billsPaid={};snap.docs.forEach(d=>{billsPaid[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(customBillsCol,snap=>{customBills=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
     setTimeout(async function() {
@@ -535,7 +638,7 @@ window.navTo=function(tab,taskCat,expSec){
   if(taskCat)activeTaskCat=taskCat;
   if(expSec)activeExpSec=expSec;
   expCatFilter='';expMonthFilter='';
-  if(tab==='bills'){billsSearch='';billsStatusFilter='';}
+  if(tab==='bills'){billsSearch='';billsStatusFilter='';billsTypeFilter='';}
   closeDrawer();render();
 };
 
@@ -864,6 +967,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='task-modal')window.closeTaskModal();
   if(e.target.id==='add-task-modal')window.closeAddTask();
   if(e.target.id==='exp-modal')window.closeExpModal();
+  if(e.target.id==='add-bill-modal')window.closeAddBillModal();
 });
 
 // Back to top
@@ -1029,7 +1133,28 @@ window.renderBills=function renderBills(){
     if(billsSearch){const q=billsSearch.toLowerCase();bills=bills.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));}
     if(billsStatusFilter==='pending') bills=bills.filter(b=>!isAmountPaid(b));
     if(billsStatusFilter==='paid') bills=bills.filter(b=>isAmountPaid(b));
-    return bills;
+    if(billsTypeFilter==='regular') bills=bills.filter(b=>b.btype==='regular');
+    if(billsTypeFilter==='nonregular') bills=bills.filter(b=>b.btype!=='regular');
+    // Add custom bills from Firebase
+    const custom=customBills.filter(b=>{
+      if(b.freq==='monthly') return true;
+      if(b.freq==='annual') return b.month===month;
+      return true;
+    }).map(b=>{
+      const effDay=billDayOverrides[b.id]!==undefined?billDayOverrides[b.id]:b.day;
+      const amtKey=billAmountKey(b.id,month,year);
+      const overrideAmt=billAmountOverrides[amtKey];
+      const effectiveAmount=overrideAmt!==undefined?overrideAmt:b.amount;
+      return{...b,key:b.id,effectiveDay:effDay,amount:effectiveAmount,btype:'custom'};
+    });
+    const customFiltered=custom.filter(b=>{
+      if(billsPropFilter&&b.property!==billsPropFilter)return false;
+      if(billsSearch){const q=billsSearch.toLowerCase();if(!b.short.toLowerCase().includes(q)&&!b.property.toLowerCase().includes(q))return false;}
+      if(billsStatusFilter==='pending'&&isAmountPaid(b))return false;
+      if(billsStatusFilter==='paid'&&!isAmountPaid(b))return false;
+      return true;
+    });
+    return [...bills,...customFiltered];
   }
 
   const allBills=getBillsForMonth(billsMonth);
@@ -1066,7 +1191,8 @@ window.renderBills=function renderBills(){
     '<div style="font-size:10px;color:var(--text3);margin-top:4px;">$'+totalPaid.toFixed(2)+' confirmed paid \u00b7 <strong style="color:'+(pendingBills.length>0?'var(--red)':'var(--green)')+';">'+pendingBills.length+' pending</strong></div>'+
     '</div>'+
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">'+vToggle+
-    '<button onclick="generateBillsReport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--navy);color:#fff;display:inline-flex;align-items:center;gap:6px;">\uD83D\uDCC4 Report</button>'+
+    '<button onclick="generateBillsReport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--navy);color:#fff;display:inline-flex;align-items:center;gap:6px;">\uD83D\uDCC4 Report</button>'+'+
+    '<button onclick="openAddBillModal()" style="font-size:11px;font-weight:700;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;">+ Add Bill</button>'
     '</div></div>';
 
   html+='<div style="display:flex;align-items:center;gap:10px;background:#f0f8f2;border:1px solid #a5d6a7;border-radius:8px;padding:8px 14px;margin-bottom:14px;flex-wrap:wrap;">'+
@@ -1078,7 +1204,10 @@ window.renderBills=function renderBills(){
 
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'+
     '<input id="bills-search-inp" type="text" class="filter-sel" placeholder="Search bill or property..." value="'+billsSearch.replace(/"/g,'&quot;')+'" oninput="window.billsSearch=this.value;window.renderBills()" style="min-width:180px;">'+
-    ((billsPropFilter||billsSearch||billsStatusFilter)?'<button class="filter-clear" onclick="window.billsPropFilter=\'\';window.billsSearch=\'\';window.billsStatusFilter=\'\';window.renderBills();window.renderSidebar();">\u2715 Clear filters</button>':'')+
+    '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Type</span>'+
+    '<button onclick="window.billsTypeFilter=window.billsTypeFilter===\'regular\'?\'\':' + "'regular'" + ';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter===\'regular\'?\'var(--accent)\':\'var(--border)\')+\';background:\'+(billsTypeFilter===\'regular\'?\'var(--blue-bg)\':\'#fff\')+\';color:\'+(billsTypeFilter===\'regular\'?\'var(--accent)\':\'var(--text3)\')+\';cursor:pointer;">Monthly</button>'+
+    '<button onclick="window.billsTypeFilter=window.billsTypeFilter===\'nonregular\'?\'\':' + "'nonregular'" + ';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter===\'nonregular\'?\'var(--accent)\':\'var(--border)\')+\';background:\'+(billsTypeFilter===\'nonregular\'?\'var(--blue-bg)\':\'#fff\')+\';color:\'+(billsTypeFilter===\'nonregular\'?\'var(--accent)\':\'var(--text3)\')+\';cursor:pointer;">Non-Regular</button>'+
+    ((billsPropFilter||billsSearch||billsStatusFilter||billsTypeFilter)?'<button class="filter-clear" onclick="window.billsPropFilter=\'\';window.billsSearch=\'\';window.billsStatusFilter=\'\';window.billsTypeFilter=\'\';window.renderBills();window.renderSidebar();">\u2715 Clear</button>':'')+
     '</div>';
 
   html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">'+
@@ -1203,7 +1332,9 @@ window.renderBills=function renderBills(){
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+b.short+'</span></div>'+
       '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
       '</div>'+
-      '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+'</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+
+      (b.btype==='custom'?'<div><button onclick="event.stopPropagation();deleteCustomBill(\''+b.id+'\')" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid var(--red-border);background:var(--red-bg);color:var(--red);cursor:pointer;margin-top:4px;">✕ delete</button></div>':'')+
+      '</div>'+
       '</div>';
   }
 
@@ -1419,7 +1550,7 @@ window.generateBillsReport = function() {
     "  return R.filter(function(b){",
     "    if(pr&&b.property!==pr)return false;",
     "    if(it&&b.short.toLowerCase().indexOf(it)===-1)return false;",
-    "    if(ty){if(ty==='yearly'&&b.btype==='regular')return false;if(ty==='regular'&&b.btype!=='regular')return false;}",
+    "    if(ty){if(ty==='nonregular'&&b.btype==='regular')return false;if(ty==='regular'&&b.btype!=='regular')return false;}",
     "    return true;});}",
     "function renderMatrix(){",
     "  var f=filtered();",
@@ -1517,7 +1648,7 @@ window.generateBillsReport = function() {
   p.push("<div class=\"filters\">");
   p.push("<div class=\"fg\"><span class=\"fl\">Property</span><select id=\"fp\" class=\"fs\" onchange=\"go()\"><option value=\"\">All</option>" + propOpts + "</select></div>");
   p.push("<div class=\"fg\"><span class=\"fl\">Search</span><input id=\"fi\" class=\"fs\" type=\"text\" placeholder=\"e.g. Xfinity...\" oninput=\"go()\" style=\"min-width:130px;\"></div>");
-  p.push("<div class=\"fg\"><span class=\"fl\">Type</span><select id=\"ft\" class=\"fs\" onchange=\"go()\"><option value=\"\">All</option><option value=\"regular\">Regular</option><option value=\"yearly\">Annual</option></select></div>");
+  p.push("<div class=\"fg\"><span class=\"fl\">Type</span><select id=\"ft\" class=\"fs\" onchange=\"go()\"><option value=\"\">All</option><option value=\"regular\">Regular</option><option value=\"nonregular\">Non-Regular / Annual</option></select></div>");
   p.push("<button class=\"fbtn\" onclick=\"document.getElementById('fp').value='';document.getElementById('fi').value='';document.getElementById('ft').value='';go();\">&#10005; Clear</button>");
   p.push("<div class=\"rate\">$1=&#8353;" + Math.round(usdCRC).toLocaleString() + " CRC</div>");
   p.push("</div>");
