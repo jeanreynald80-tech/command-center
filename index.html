@@ -393,7 +393,6 @@ function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60
 
 let activeTab='home',activeTaskCat='all',activeExpSec='florida';
 let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list';
-Object.defineProperty(window,'activeTab',{get:()=>activeTab,set:v=>{activeTab=v;}});
 Object.defineProperty(window,'billsMonth',{get:()=>billsMonth,set:v=>{billsMonth=v;}});
 Object.defineProperty(window,'billsPropFilter',{get:()=>billsPropFilter,set:v=>{billsPropFilter=v;}});
 Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSearch=v;}});
@@ -528,7 +527,6 @@ function dateToISO(s){const d=parseDate(s);if(!d)return'';return new Date(d.getT
 function isoToDisplay(raw){if(!raw)return'';const[y,m,d]=raw.split('-');return MN[parseInt(m)-1]+' '+parseInt(d);}
 
 // ── NAVIGATION ────────────────────────────────────────────────
-window.render=function(){render();};
 window.navTo=function(tab,taskCat,expSec){
   activeTab=tab;
   if(taskCat)activeTaskCat=taskCat;
@@ -537,6 +535,7 @@ window.navTo=function(tab,taskCat,expSec){
   if(tab==='bills'){billsSearch='';billsPropFilter='';billsStatusFilter='';}
   closeDrawer();render();
 };
+window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
 
 // ── RENDER ────────────────────────────────────────────────────
 function render(){
@@ -588,7 +587,7 @@ window.renderSidebar=function renderSidebar(){
   }else if(activeTab==='bills'){
     const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti','Personal'];
     subNav.style.display='flex';
-    subNav.innerHTML=PROPS.map(p=>{const v=p==='All'?'':p;const act=billsPropFilter===v?' active':'';return '<div class="sub-tab'+act+'" onclick="activeTab=\'bills\';window.billsPropFilter=\''+v+'\';render();">'+p+'</div>';}).join('');
+    subNav.innerHTML=PROPS.map(p=>{const v=p==='All'?'':p;const act=billsPropFilter===v?' active':'';return '<div class="sub-tab'+act+'" onclick="navToBills(\''+v+'\');">'+p+'</div>';}).join('');
   }else{subNav.style.display='none';}
 };
 function renderHome(){
