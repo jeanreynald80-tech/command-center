@@ -601,7 +601,9 @@ window.submitAddBill=async function(){
     month:parseInt(document.getElementById('ab-month').value)||1,
     currency:document.getElementById('ab-currency').value,
     btype:'custom',
-    createdAt:Date.now()
+    createdAt:Date.now(),
+    startMonth:new Date().getMonth()+1,
+    startYear:new Date().getFullYear()
   };
   if(firebaseReady){await addDoc(customBillsCol,bill);}
   else{customBills.push({id:'local-'+Date.now(),...bill});renderBills();}
@@ -1082,6 +1084,18 @@ async function toggleBillPaid(key,month,year,amount,name){
   }
 }
 window.toggleBillPaid=toggleBillPaid;
+window.toggleCustomPaid=async function(key,month,year,amount,name){
+  const paidKey=key+'-'+year+'-'+month;
+  const isPaid=isBillPaid(key,month,year);
+  if(firebaseReady){
+    if(isPaid){await deleteDoc(doc(db,'billspaid',paidKey));}
+    else{await setDoc(doc(db,'billspaid',paidKey),{paid:true,name:name,amount:amount,paidAt:Date.now()});}
+  }else{
+    if(isPaid)delete billsPaid[paidKey];
+    else billsPaid[paidKey]={paid:true,name:name,amount:amount,paidAt:Date.now()};
+  }
+  renderBills();
+};
 
 function renderBills(){
   const year=new Date().getFullYear();
@@ -1089,7 +1103,12 @@ function renderBills(){
   const todayDay=today.getDate();
   const todayMonth=today.getMonth()+1;
   const MN_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  function isAmountPaid(b){return b.amount!==null&&b.amount!==undefined;}
+  function isAmountPaid(b){
+    // Custom bills: paid ONLY when explicitly marked paid for this month (not just because an amount exists)
+    if(b.btype==='custom'){return isBillPaid(b.key,billsMonthForRow(b),year);}
+    return b.amount!==null&&b.amount!==undefined;
+  }
+  function billsMonthForRow(b){return b.forMonth||billsMonth;}
 
   function getBillsForMonth(month){
     let bills=[
@@ -1126,8 +1145,13 @@ function renderBills(){
       var effDay=billDayOverrides[b.id]!==undefined?billDayOverrides[b.id]:b.day;
       var amtKey=billAmountKey(b.id,month,year);
       var ov=billAmountOverrides[amtKey];
-      var amt=ov!==undefined?ov:b.amount;
-      return Object.assign({},b,{key:b.id,effectiveDay:effDay,amount:amt,btype:'custom'});
+      // Only apply the preset amount from the bill's start month onward.
+      // Earlier months show as pending (no amount) so past totals aren't inflated.
+      var sM=b.startMonth||1, sY=b.startYear||year;
+      var beforeStart=(year<sY)||(year===sY&&month<sM);
+      var presetAmt=beforeStart?null:b.amount;
+      var amt=ov!==undefined?ov:presetAmt;
+      return Object.assign({},b,{key:b.id,effectiveDay:effDay,amount:amt,btype:'custom',forMonth:month});
     }).filter(function(b){
       if(billsPropFilter&&b.property!==billsPropFilter)return false;
       if(billsSearch){var q=billsSearch.toLowerCase();if(!b.short.toLowerCase().includes(q)&&!b.property.toLowerCase().includes(q))return false;}
@@ -1305,6 +1329,19 @@ function renderBills(){
     }else{
       amtDisplay='<div style="font-size:18px;font-weight:700;color:var(--text3);">$'+parseFloat(b.amount).toFixed(2)+'</div>';
       actionBtn='<button onclick="event.stopPropagation();clearBillAmount(\''+b.key+'\','+billsMonth+','+year+')" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">\u2715 clear</button>';
+    }
+    // Custom bills: amount may be set but bill is only PAID when explicitly marked.
+    if(b.btype==='custom'){
+      var hasAmt=b.amount!==null&&b.amount!==undefined;
+      var paidNow=isBillPaid(b.key,b.forMonth||billsMonth,year);
+      if(hasAmt){
+        var amtStr=isCRC?('\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()):('$'+parseFloat(b.amount).toFixed(2));
+        amtDisplay='<div style="font-size:18px;font-weight:700;color:'+(paidNow?'var(--green)':'var(--text)')+';">'+amtStr+'</div>';
+        actionBtn='<button onclick="event.stopPropagation();toggleCustomPaid(\''+b.key+'\','+(b.forMonth||billsMonth)+','+year+','+b.amount+',\''+(b.short.replace(/'/g,""))+'\')" style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid '+(paidNow?'var(--border)':'var(--green)')+';background:'+(paidNow?'#fff':'var(--green)')+';color:'+(paidNow?'var(--text3)':'#fff')+';cursor:pointer;white-space:nowrap;margin-top:4px;">'+(paidNow?'\u2713 Paid \u00b7 Undo':'Mark Paid')+'</button>';
+      }else{
+        amtDisplay='';
+        actionBtn='<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+billsMonth+','+year+','+isCRC+')" style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap;">+ Enter Amount</button>';
+      }
     }
     const autoBadge=b.auto!==undefined?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:'+(b.auto?'#e8f5e9':'#fff8e1')+';color:'+(b.auto?'#2e7d32':'#f57f17')+';border:1px solid '+(b.auto?'#a5d6a7':'#ffe082')+';">'+(b.auto?'AUTO':'MANUAL')+'</span>':'';
     const cardBadge=b.card?'<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">'+b.card+'</span>':'';
