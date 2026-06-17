@@ -1104,8 +1104,11 @@ function renderBills(){
   const todayMonth=today.getMonth()+1;
   const MN_FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
   function isAmountPaid(b){
-    // Custom bills: paid ONLY when explicitly marked paid for this month (not just because an amount exists)
-    if(b.btype==='custom'){return isBillPaid(b.key,billsMonthForRow(b),year);}
+    // Custom bills: pre-start months are auto-paid ($0); otherwise paid ONLY when explicitly marked.
+    if(b.btype==='custom'){
+      if(b.preStart)return true;
+      return isBillPaid(b.key,billsMonthForRow(b),year);
+    }
     return b.amount!==null&&b.amount!==undefined;
   }
   function billsMonthForRow(b){return b.forMonth||billsMonth;}
@@ -1145,13 +1148,14 @@ function renderBills(){
       var effDay=billDayOverrides[b.id]!==undefined?billDayOverrides[b.id]:b.day;
       var amtKey=billAmountKey(b.id,month,year);
       var ov=billAmountOverrides[amtKey];
-      // Only apply the preset amount from the bill's start month onward.
-      // Earlier months show as pending (no amount) so past totals aren't inflated.
+      // Months before the bill's start: amount $0 and auto-paid (pattern hadn't started yet).
+      // From the start month onward: show preset amount, pending until marked paid.
       var sM=b.startMonth||1, sY=b.startYear||year;
       var beforeStart=(year<sY)||(year===sY&&month<sM);
-      var presetAmt=beforeStart?null:b.amount;
-      var amt=ov!==undefined?ov:presetAmt;
-      return Object.assign({},b,{key:b.id,effectiveDay:effDay,amount:amt,btype:'custom',forMonth:month});
+      var amt;
+      if(beforeStart){amt=0;}
+      else{amt=ov!==undefined?ov:b.amount;}
+      return Object.assign({},b,{key:b.id,effectiveDay:effDay,amount:amt,btype:'custom',forMonth:month,preStart:beforeStart});
     }).filter(function(b){
       if(billsPropFilter&&b.property!==billsPropFilter)return false;
       if(billsSearch){var q=billsSearch.toLowerCase();if(!b.short.toLowerCase().includes(q)&&!b.property.toLowerCase().includes(q))return false;}
@@ -1332,6 +1336,17 @@ function renderBills(){
     }
     // Custom bills: amount may be set but bill is only PAID when explicitly marked.
     if(b.btype==='custom'){
+      if(b.preStart){
+        amtDisplay='<div style="font-size:18px;font-weight:700;color:var(--green);">$0.00</div>';
+        actionBtn='<span style="font-size:8px;font-weight:700;color:var(--text3);">not started</span>';
+        return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-top:none;opacity:.7;">'+
+          '<div style="flex:1;min-width:0;">'+
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u2713 PAID</span><span style="font-size:13px;font-weight:400;color:var(--text3);">'+b.short+'</span></div>'+
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;"><span style="font-size:8px;color:var(--text3);">Pattern starts later</span></div>'+
+          '</div>'+
+          '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+'</div>'+
+          '</div>';
+      }
       var hasAmt=b.amount!==null&&b.amount!==undefined;
       var paidNow=isBillPaid(b.key,b.forMonth||billsMonth,year);
       if(hasAmt){
