@@ -1317,7 +1317,7 @@ function renderBills(){
   function billRow(b){
     const amtPaid=isAmountPaid(b);
     const effDay=b.effectiveDay||b.day;
-    const isOverdue=!amtPaid&&billsMonth===todayMonth&&effDay<todayDay;
+    const rowMonth=b.forMonth||billsMonth;const isOverdue=!amtPaid&&year===today.getFullYear()&&rowMonth===todayMonth&&effDay<todayDay;
     const isCRC=b.currency==='CRC';
     const statusBadge=amtPaid
       ?'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u2713 PAID</span>'
