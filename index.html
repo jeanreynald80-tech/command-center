@@ -424,7 +424,7 @@ function fmtDate(s){if(!s)return'';try{return new Date(s+'T12:00:00').toLocaleDa
 function todayISO(){return new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().split('T')[0];}
 
 let activeTab='home',activeTaskCat='all',activeExpSec='florida';
-let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list',billsTypeFilter='';
+let billsMonth=new Date().getMonth()+1,billsPropFilter='',billsSearch='',billsGroupBy='property',billsStatusFilter='',billsView='list',billsTypeFilter='',billsYearView=false;
 Object.defineProperty(window,'billsMonth',{get:()=>billsMonth,set:v=>{billsMonth=v;}});
 Object.defineProperty(window,'billsPropFilter',{get:()=>billsPropFilter,set:v=>{billsPropFilter=v;}});
 Object.defineProperty(window,'billsSearch',{get:()=>billsSearch,set:v=>{billsSearch=v;}});
@@ -569,7 +569,8 @@ window.navTo=function(tab,taskCat,expSec){
   window.closeDrawer();render();
 };
 window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
-window.setBillsType=function(t){billsTypeFilter=billsTypeFilter===t?'':t;renderBills();};
+window.setBillsType=function(t){billsTypeFilter=billsTypeFilter===t?'':t;if(t!=='nonregular')billsYearView=false;renderBills();};
+window.setBillsYearView=function(v){billsYearView=v;renderBills();};
 window.openAddBillModal=function(){
   document.getElementById('add-bill-modal').classList.add('open');
   document.getElementById('ab-name').value='';
@@ -1188,6 +1189,7 @@ function renderBills(){
     '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Type</span>'+
     '<button onclick="setBillsType(\'regular\')" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter==='regular'?'var(--accent)':'var(--border)')+';background:'+(billsTypeFilter==='regular'?'var(--blue-bg)':'#fff')+';color:'+(billsTypeFilter==='regular'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Monthly</button>'+
     '<button onclick="setBillsType(\'nonregular\')" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter==='nonregular'?'var(--accent)':'var(--border)')+';background:'+(billsTypeFilter==='nonregular'?'var(--blue-bg)':'#fff')+';color:'+(billsTypeFilter==='nonregular'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Non-Regular</button>'+
+    (billsTypeFilter==='nonregular'?'<span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span><button onclick="setBillsYearView(false)" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(!billsYearView?'var(--accent)':'var(--border)')+';background:'+(!billsYearView?'var(--blue-bg)':'#fff')+';color:'+(!billsYearView?'var(--accent)':'var(--text3)')+';cursor:pointer;">This Month</button><button onclick="setBillsYearView(true)" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsYearView?'var(--accent)':'var(--border)')+';background:'+(billsYearView?'var(--blue-bg)':'#fff')+';color:'+(billsYearView?'var(--accent)':'var(--text3)')+';cursor:pointer;">Full Year</button>':'')+
     ((billsPropFilter||billsSearch||billsStatusFilter||billsTypeFilter)?'<button class="filter-clear" onclick="window.billsPropFilter=\'\';window.billsSearch=\'\';window.billsStatusFilter=\'\';billsTypeFilter=\'\';window.renderBills();window.renderSidebar();">\u2715 Clear filters</button>':'')+
     '</div>';
 
@@ -1253,14 +1255,14 @@ function renderBills(){
   }
 
   // ── LIST VIEW ─────────────────────────────────────────────
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'+
+  html+=((billsYearView&&billsTypeFilter==='nonregular')?'':'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">'+
     '<select class="filter-sel" onchange="window.billsMonth=parseInt(this.value);window.billsPropFilter=\'\';window.renderBills();window.renderSidebar();">'+
     MONTH_NAMES.map((m,i)=>'<option value="'+(i+1)+'"'+(billsMonth===i+1?' selected':'')+'>'+m+'</option>').join('')+
     '</select>'+
     '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);">Group by</span>'+
     '<button onclick="window.billsGroupBy=\'day\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsGroupBy==='day'?'var(--accent)':'var(--border)')+';background:'+(billsGroupBy==='day'?'var(--blue-bg)':'#fff')+';color:'+(billsGroupBy==='day'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Day</button>'+
     '<button onclick="window.billsGroupBy=\'property\';window.renderBills()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsGroupBy==='property'?'var(--accent)':'var(--border)')+';background:'+(billsGroupBy==='property'?'var(--blue-bg)':'#fff')+';color:'+(billsGroupBy==='property'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Property</button>'+
-    '</div>';
+    '</div>');
 
   function grpHdr(label,bills){
     const grpTotal=bills.reduce((s,b)=>s+billUSD(b),0);
@@ -1324,6 +1326,39 @@ function renderBills(){
     if(pending.length){out+=subHdr('Pending',pending.length,false);out+=pending.map(billRow).join('');}
     if(paid.length){out+=subHdr('Paid',paid.length,true);out+=paid.map(billRow).join('');}
     return out;
+  }
+
+  if(billsYearView && billsTypeFilter==='nonregular'){
+    // FULL YEAR VIEW — all non-regular bills across all 12 months
+    const MN_FULL2=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    let anyYear=false;
+    let yearGrandTotal=0;
+    for(let m=1;m<=12;m++){
+      const monthBills=getBillsForMonth(m).filter(b=>b.btype!=='regular');
+      if(monthBills.length===0)continue;
+      anyYear=true;
+      const mTotal=monthBills.reduce((s,b)=>s+billUSD(b),0);
+      yearGrandTotal+=mTotal;
+      const mPaid=monthBills.filter(b=>isAmountPaid(b)).length;
+      const mPend=monthBills.filter(b=>!isAmountPaid(b)).length;
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--navy);border-radius:8px 8px 0 0;margin-top:20px;margin-bottom:1px;">'+
+        '<div style="display:flex;align-items:center;gap:10px;">'+
+        '<span style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;">'+MN_FULL2[m-1]+'</span>'+
+        '<span style="font-size:10px;background:rgba(255,255,255,.15);border-radius:20px;padding:1px 8px;color:rgba(255,255,255,.7);">'+monthBills.length+'</span>'+
+        '</div>'+
+        '<div style="text-align:right;"><div style="font-size:18px;font-weight:700;color:#93c5fd;">$'+mTotal.toFixed(2)+'</div>'+
+        '<div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:1px;">'+mPaid+' paid · '+mPend+' pending</div></div></div>';
+      const pending=monthBills.filter(b=>!isAmountPaid(b)).sort((a,b)=>(a.effectiveDay||0)-(b.effectiveDay||0));
+      const paid=monthBills.filter(b=>isAmountPaid(b)).sort((a,b)=>(a.effectiveDay||0)-(b.effectiveDay||0));
+      if(pending.length){html+=subHdr('Pending',pending.length,false);html+=pending.map(billRow).join('');}
+      if(paid.length){html+=subHdr('Paid',paid.length,true);html+=paid.map(billRow).join('');}
+    }
+    if(!anyYear){html+='<div class="empty">No non-regular bills match your filters.</div>';}
+    else{html+='<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#1e40af;text-align:center;"><strong>Full Year Total: $'+yearGrandTotal.toFixed(2)+'</strong> across all non-regular bills</div>';}
+    document.getElementById('task-area').innerHTML=html;
+    const inpY=document.getElementById('bills-search-inp');
+    if(inpY&&billsSearch){inpY.focus();inpY.setSelectionRange(inpY.value.length,inpY.value.length);}
+    return;
   }
 
   if(allBills.length===0){html+='<div class="empty">No bills match your filters.</div>';}
