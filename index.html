@@ -282,6 +282,17 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     </div>
   </div>
 
+  <!-- NOTE MODAL -->
+  <div class="overlay" id="note-modal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-title">📝 Payment Instructions</div>
+      <div id="note-modal-text" style="font-size:13px;line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-word;"></div>
+      <div class="modal-actions">
+        <button class="btn-save" onclick="closeBillNote()">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ADD BILL MODAL -->
   <div class="overlay" id="add-bill-modal">
     <div class="modal">
@@ -952,6 +963,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='add-task-modal')window.closeAddTask();
   if(e.target.id==='exp-modal')window.closeExpModal();
   if(e.target.id==='add-bill-modal')window.closeAddBillModal();
+  if(e.target.id==='note-modal')window.closeBillNote();
 });
 
 // Back to top
@@ -1049,6 +1061,26 @@ const YEARLY_BILLS=[
   {key:'dental',short:'Personal Dental Cleaning',property:'Personal',month:11,day:30,amount:null},
   {key:'eye-check',short:'Personal Eye Check',property:'Personal',month:12,day:31,amount:null},
 ];
+
+
+// ── BILL NOTES (payment instructions) ─────────────────────────
+const BILL_NOTES={
+  'pbp-hoa-sl':"Pay through: https://www.accesssentrymgt.com/dx/sentrywp/index.html",
+  'nila-gti':"ID# 113890976. Through BNCR: Pagos \u2192 Facturacion \u2192 GTI Pago de Facturas \u2192 Facturacion colones \u2192 enter cedula 3102885675. Faster link: https://www.facturaelectronica.cr/PagarFacturacion",
+  'nila-juridica':"No firma digital, so need a lawyer to file. Alonzo charged 100 mil colones; Claudia charged 50 mil colones. Also: send the Nila card number to accountant (Allan) to pay on the TRIBU Hacienda website.",
+  'mcdonough-lease':"Site: https://www.northvalleymcga.info/ \u00b7 User: JeanReynald80@gmail.com \u00b7 Paid by Zelle on 3/18/2025 ($1 + $449) to battlealicianorthvalley@gmail.com. Call back to confirm same method this year. (Password kept private.)",
+  'mcdonough-hoa':"Site: https://www.northvalleymcga.info/ \u00b7 User: JeanReynald80@gmail.com \u00b7 Paid by Zelle on 3/18/2025 ($1 + $449) to battlealicianorthvalley@gmail.com. Call back to confirm same method this year. (Password kept private.)",
+  'nila-patente':"File annually by April 16 at https://www.santaana.go.cr. Needs firma digital/criptografica + income tax return from Tributacion Directa. NITE (3120202603) valid until 11/23/2029, needed to create OVI user for Tribu-CR.",
+  'ciudad-prop-tax':"Watch out for junk-mail scams charging more than you owe.",
+  'nila-trab':"CCSS Trabajador Independiente: Banco Nacional \u2192 Pagos \u2192 CCSS \u2192 Trabajador Independiente \u2192 copy account into 'Valor a Consultar'.",
+  'nila-ccss':"CCSS Cuota Obrero Patronal: Banco Nacional \u2192 Pagos \u2192 Cuota Obrero Patronal \u2192 use 'recibos frecuentes' (number appears automatically)."
+};
+window.showBillNote=function(key){
+  const note=BILL_NOTES[key];if(!note)return;
+  document.getElementById('note-modal-text').textContent=note;
+  document.getElementById('note-modal').classList.add('open');
+};
+window.closeBillNote=function(){document.getElementById('note-modal').classList.remove('open');};
 
 function getBillsDueThisMonth(month){
   const mi=month-1;
@@ -1364,7 +1396,7 @@ function renderBills(){
     const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
     return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:'+(amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff')+';border:1px solid '+(isOverdue&&!amtPaid?'#fca5a5':'var(--border)')+';border-top:none;opacity:'+(amtPaid?'.8':'1')+';">'+
       '<div style="flex:1;min-width:0;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+b.short+'</span></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+(BILL_NOTES[b.key]?'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\')" title="Payment instructions" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;">📝</button>':'')+'</div>'+
       '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
       '</div>'+
       '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+(b.btype==='custom'?'<br><button onclick="event.stopPropagation();deleteCustomBill(\''+b.key+'\')" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;margin-top:4px;">✕ delete</button>':'')+'</div>'+
