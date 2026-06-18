@@ -1621,7 +1621,14 @@ window.generateBillsSummaryReport = function() {
     ".act{text-align:center;padding:18px;background:#fff;border-top:1px solid #e2e8f0;}",
     ".bp{font-size:11px;font-weight:700;padding:10px 22px;border-radius:6px;border:none;background:#0f2044;color:#fff;cursor:pointer;margin:0 4px;}",
     ".foot{text-align:center;padding:14px;font-size:10px;color:#94a3b8;}",
-    "@media print{.top-bar,.filters,.act{display:none!important;}body{background:#fff;}.cover,thead,.pr-row,.tot-row,.sumbar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}"
+    "\n    .chart-wrap{background:#fff;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.07);padding:18px 20px;margin-bottom:18px;}",
+    ".chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:16px;}",
+    ".chart{display:flex;align-items:flex-end;gap:8px;height:200px;}",
+    ".bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;}",
+    ".bar-val{font-size:9px;font-weight:700;color:#334155;white-space:nowrap;}",
+    ".bar{width:100%;border-radius:4px 4px 0 0;min-height:2px;transition:height .2s;}",
+    ".bar-lbl{font-size:9px;color:#94a3b8;font-weight:600;}",
+    "@media print{.top-bar,.filters,.act{display:none!important;}body{background:#fff;}.cover,thead,.pr-row,.tot-row,.sumbar,.bar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}"
   ].join("");
 
   var clientJs = [
@@ -1671,7 +1678,21 @@ window.generateBillsSummaryReport = function() {
     "    var tyb=r.type.indexOf('Monthly')>-1?'<span class=\"badge b-mo\">Monthly</span>':'<span class=\"badge b-nr\">Non-Reg</span>';",
     "    h+='<tr><td class=\"bn\">'+r.name+'</td><td>'+MNF[r.month-1]+'</td><td>'+(r.property)+'</td><td>'+tyb+' '+stb+'</td><td style=\"font-size:10px;color:#94a3b8;\">'+(r.card||'')+'</td><td class=\"amt\">'+fmt(r)+'</td></tr>';});",
     "  if(f.length>0){h+='<tr class=\"tot-row\"><td colspan=\"5\">TOTAL ('+f.length+' bills)</td><td>$'+total.toFixed(2)+'</td></tr>';}",
-    "  document.getElementById('tbody').innerHTML=h;}",
+    "  document.getElementById('tbody').innerHTML=h;",
+    "  renderChart(f);}",
+    "function renderChart(f){",
+    "  var mt=[];for(var i=0;i<12;i++)mt.push(0);",
+    "  f.forEach(function(r){mt[r.month-1]+=usd(r);});",
+    "  var mx=Math.max.apply(null,mt);if(mx<=0)mx=1;",
+    "  var MNs=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];",
+    "  var ch='';",
+    "  for(var m=0;m<12;m++){",
+    "    var hpx=mt[m]>0?Math.max(4,Math.round((mt[m]/mx)*150)):2;",
+    "    var col=(m+1===new Date().getMonth()+1)?'#2563eb':(mt[m]>0?'#3b82f6':'#e2e8f0');",
+    "    ch+='<div class=\"bar-col\"><div class=\"bar-val\">'+(mt[m]>0?'$'+Math.round(mt[m]):'')+'</div>';",
+    "    ch+='<div class=\"bar\" style=\"height:'+hpx+'px;background:'+col+';\" title=\"'+MNs[m]+': $'+mt[m].toFixed(2)+'\"></div>';",
+    "    ch+='<div class=\"bar-lbl\">'+MNs[m]+'</div></div>';}",
+    "  document.getElementById('chart').innerHTML=ch;}",
     "function setSort(k){if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=1;}render();}",
     "function clearF(){document.getElementById('f-month').value='';document.getElementById('f-prop').value='';document.getElementById('f-item').value='';document.getElementById('f-type').value='';document.getElementById('f-status').value='';render();}",
     "render();"
@@ -1697,7 +1718,9 @@ window.generateBillsSummaryReport = function() {
   p.push('<div class="sb-item"><div class="sb-l">Paid</div><div class="sb-v" id="sb-paid">$0</div></div>');
   p.push('<div class="sb-item"><div class="sb-l">Pending</div><div class="sb-v" id="sb-pend">0</div></div>');
   p.push('</div>');
-  p.push('<div class="body"><div class="tw"><table><thead><tr>');
+  p.push('<div class="body">');
+  p.push('<div class="chart-wrap"><div class="chart-title">Monthly Totals (USD) \u2014 reflects current filters</div><div class="chart" id="chart"></div></div>');
+  p.push('<div class="tw"><table><thead><tr>');
   p.push('<th onclick="setSort(\'name\')">Item &#8597;</th><th onclick="setSort(\'month\')">Month &#8597;</th><th onclick="setSort(\'property\')">Property &#8597;</th><th>Type / Status</th><th>Card</th><th onclick="setSort(\'amount\')" style="text-align:right;">Amount &#8597;</th>');
   p.push('</tr></thead><tbody id="tbody"></tbody></table></div></div>');
   p.push('<div class="act"><button class="bp" onclick="window.print()">&#128424; Print / Save PDF</button> <button class="bp" style="background:#f0f4f8;color:#334155;border:1px solid #cbd5e1;" onclick="window.close()">&#8592; Back</button></div>');
