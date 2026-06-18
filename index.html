@@ -306,7 +306,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="field"><label class="field-lbl">Property</label>
         <select class="field-inp" id="ab-property">
           <option>Hampton</option><option>Pembroke Pines</option><option>Lithonia</option>
-          <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option><option>Haiti</option>
+          <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option><option>Haiti</option><option>Credit Card</option>
         </select>
       </div>
       <div class="field"><label class="field-lbl">Due Day (1-31)</label><input class="field-inp" id="ab-day" type="number" min="1" max="31" placeholder="e.g. 15"></div>
@@ -683,7 +683,7 @@ function renderSidebar(){
     subNav.style.display='flex';
     subNav.innerHTML=`<div class="sub-tab${activeExpSec==='florida'?' active':''}" onclick="navTo('expenses','','florida')">Florida <span class="sub-tab-badge">${expenses.length}</span></div><div class="sub-tab${activeExpSec==='lithonia'?' active':''}" onclick="navTo('expenses','','lithonia')">Lithonia <span class="sub-tab-badge">${lithonia.length}</span></div>`;
   }else if(activeTab==='bills'){
-    const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti'];
+    const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti','Credit Card'];
     subNav.style.display='flex';
     subNav.innerHTML=PROPS.map(p=>{const v=p==='All'?'':p;const act=billsPropFilter===v?' active':'';return '<div class="sub-tab'+act+'" onclick="navToBills(\''+v+'\');">'+p+'</div>';}).join('');
   }else{subNav.style.display='none';}
@@ -987,7 +987,7 @@ const REGULAR_BILLS=[
   {key:'apple-icloud',short:'Apple iCloud',property:'Hampton',country:'US',auto:true,card:'American Express',day:15,amounts:[2.99,2.99,2.99,2.99,2.99,2.99,null,null,null,null,null,null]},
   {key:'amazon-prime',short:'Amazon Prime',property:'Hampton',country:'US',auto:true,card:'American Express',day:16,amounts:[16.19,16.99,16.99,16.99,16.99,19.99,null,null,null,null,null,null]},
   {key:'spotify',short:'Spotify',property:'Hampton',country:'US',auto:true,card:'American Express',day:24,amounts:[19.99,19.99,0,19.99,19.99,16.99,null,null,null,null,null,null]},
-  {key:'amex-delta',short:'Amex Delta Payment',property:'Hampton',country:'US',auto:false,card:'Manual',day:16,amounts:[9200,0,3000,14000,14500,3716.45,null,null,null,null,null,null]},
+  {key:'amex-delta',short:'Amex Delta Payment',property:'Credit Card',country:'US',auto:false,card:'American Express',day:16,amounts:[9200,0,3000,14000,14500,3716.45,null,null,null,null,null,null]},
   {key:'divorce',short:'Divorce (Amex)',property:'Hampton',country:'US',auto:true,card:'American Express',day:4,amounts:[2347.57,6897.01,0,2832.23,4258.91,0,null,null,null,null,null,null]},
   {key:'rankin-loan',short:'Rankin Loan (McDonough)',property:'McDonough',country:'US',auto:true,card:'Truist',day:7,amounts:[1000,1000,1000,1000,727.22,727.22,null,null,null,null,null,null]},
   {key:'cobra-ins',short:'Cobra Insurance',property:'Hampton',country:'US',auto:true,card:'Truist',day:7,amounts:[596.24,654,381.76,381.76,381.76,381.76,null,null,null,null,null,null]},
@@ -1238,8 +1238,15 @@ function renderBills(){
 
   const allBills=getBillsForMonth(billsMonth);
 
+  function isFutureUnpaid(b){
+    // A bill in a month AFTER the current month that has not been marked paid.
+    const rowMonth=b.forMonth||billsMonth;
+    const isFuture=(year>today.getFullYear())||(year===today.getFullYear()&&rowMonth>todayMonth);
+    return isFuture && !isAmountPaid(b);
+  }
   function billUSD(b){
     if(b.amount===null||b.amount===undefined)return 0;
+    if(isFutureUnpaid(b))return 0; // anticipated future amount excluded from totals until paid
     return b.currency==='CRC'?crcToUSD(parseFloat(b.amount)):parseFloat(b.amount)||0;
   }
   const paidBills=allBills.filter(b=>isAmountPaid(b));
@@ -1385,14 +1392,36 @@ function renderBills(){
   }
 
   function billRow(b){
-    const amtPaid=isAmountPaid(b);
     const effDay=b.effectiveDay||b.day;
-    const rowMonth=b.forMonth||billsMonth;const isOverdue=!amtPaid&&year===today.getFullYear()&&rowMonth===todayMonth&&effDay<todayDay;
+    const rowMonth=b.forMonth||billsMonth;
+    const isFuture=(year>today.getFullYear())||(year===today.getFullYear()&&rowMonth>todayMonth);
+    const hasAmount=b.amount!==null&&b.amount!==undefined;
+    // Future months not yet paid: show amount as greyed "expected", excluded from totals.
+    const futExpected=isFuture && hasAmount && !isAmountPaid(b);
+    const amtPaid=isAmountPaid(b) && !futExpected;
+    const isOverdue=!amtPaid&&!futExpected&&year===today.getFullYear()&&rowMonth===todayMonth&&effDay<todayDay;
     const isCRC=b.currency==='CRC';
     const statusBadge=amtPaid
       ?'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u2713 PAID</span>'
+      :futExpected
+      ?'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;">EXPECTED</span>'
       :'<span style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:'+(isOverdue?'#fef2f2':'#fff8e1')+';color:'+(isOverdue?'#b91c1c':'#92400e')+';border:1px solid '+(isOverdue?'#fca5a5':'#fcd34d')+';">'+(isOverdue?'\u26a0 OVERDUE':'PENDING')+'</span>';
     let amtDisplay,actionBtn;
+    if(futExpected && b.btype!=='custom'){
+      var fAmt=isCRC?('\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()):('$'+parseFloat(b.amount).toFixed(2));
+      amtDisplay='<div style="text-align:right;"><div style="font-size:16px;font-weight:600;color:#94a3b8;font-style:italic;">'+fAmt+'</div><div style="font-size:9px;color:#94a3b8;">expected \u00b7 not in total</div></div>';
+      actionBtn='<button onclick="event.stopPropagation();toggleCustomPaid(\''+b.key+'\','+rowMonth+','+year+','+parseFloat(b.amount)+',\''+(b.short.replace(/\x27/g,""))+'\')" style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--green);background:var(--green);color:#fff;cursor:pointer;white-space:nowrap;margin-top:4px;">Mark Paid</button>';
+      const autoB=b.auto!==undefined?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:'+(b.auto?'#e8f5e9':'#fff8e1')+';color:'+(b.auto?'#2e7d32':'#f57f17')+';border:1px solid '+(b.auto?'#a5d6a7':'#ffe082')+';">'+(b.auto?'AUTO':'MANUAL')+'</span>':'';
+      const cardB=b.card?'<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:20px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">'+b.card+'</span>':'';
+      const propB=billsGroupBy!=='property'?'<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:20px;background:var(--blue-bg);color:var(--accent);border:1px solid var(--blue-border);">'+b.property+'</span>':'';
+      const crcB=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
+      return '<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#fff;border:1px solid var(--border);border-top:none;">'+
+        '<div style="flex:1;min-width:0;">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+statusBadge+'<span style="font-size:13px;font-weight:500;color:var(--text2);white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">\uD83D\uDCDD</button>'+'</div>'+
+        '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propB+autoB+cardB+dayEditWidget(b)+crcB+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+'</div></div>';
+    }
     if(!amtPaid){
       amtDisplay='';
       actionBtn='<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+billsMonth+','+year+','+isCRC+')" style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap;">+ Enter Amount</button>';
@@ -1487,7 +1516,7 @@ function renderBills(){
   else if(billsGroupBy==='property'){
     const byProp={};
     allBills.forEach(b=>{if(!byProp[b.property])byProp[b.property]=[];byProp[b.property].push(b);});
-    const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Personal'];
+    const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Credit Card','Personal'];
     const ordered=[...propOrder.filter(p=>byProp[p]),...Object.keys(byProp).filter(p=>!propOrder.includes(p))];
     ordered.forEach(prop=>{html+=grpHdr(prop,byProp[prop]);html+=renderGroup(byProp[prop]);});
   }else{
