@@ -306,7 +306,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="field"><label class="field-lbl">Property</label>
         <select class="field-inp" id="ab-property">
           <option>Hampton</option><option>Pembroke Pines</option><option>Lithonia</option>
-          <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option><option>Haiti</option><option>Credit Card</option>
+          <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option><option>Haiti</option><option>Credit Card</option><option>Legal Fees</option>
         </select>
       </div>
       <div class="field"><label class="field-lbl">Due Day (1-31)</label><input class="field-inp" id="ab-day" type="number" min="1" max="31" placeholder="e.g. 15"></div>
@@ -683,7 +683,7 @@ function renderSidebar(){
     subNav.style.display='flex';
     subNav.innerHTML=`<div class="sub-tab${activeExpSec==='florida'?' active':''}" onclick="navTo('expenses','','florida')">Florida <span class="sub-tab-badge">${expenses.length}</span></div><div class="sub-tab${activeExpSec==='lithonia'?' active':''}" onclick="navTo('expenses','','lithonia')">Lithonia <span class="sub-tab-badge">${lithonia.length}</span></div>`;
   }else if(activeTab==='bills'){
-    const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti','Credit Card'];
+    const PROPS=['All','Hampton','Lithonia','McDonough','Pembroke Pines','Ciudad Colon','Nila','Haiti','Credit Card','Legal Fees'];
     subNav.style.display='flex';
     subNav.innerHTML=PROPS.map(p=>{const v=p==='All'?'':p;const act=billsPropFilter===v?' active':'';return '<div class="sub-tab'+act+'" onclick="navToBills(\''+v+'\');">'+p+'</div>';}).join('');
   }else{subNav.style.display='none';}
@@ -988,7 +988,7 @@ const REGULAR_BILLS=[
   {key:'amazon-prime',short:'Amazon Prime',property:'Hampton',country:'US',auto:true,card:'American Express',day:16,amounts:[16.19,16.99,16.99,16.99,16.99,19.99,null,null,null,null,null,null]},
   {key:'spotify',short:'Spotify',property:'Hampton',country:'US',auto:true,card:'American Express',day:24,amounts:[19.99,19.99,0,19.99,19.99,16.99,null,null,null,null,null,null]},
   {key:'amex-delta',short:'Amex Delta Payment',property:'Credit Card',country:'US',auto:false,card:'American Express',day:16,amounts:[9200,0,3000,14000,14500,3716.45,null,null,null,null,null,null]},
-  {key:'divorce',short:'Divorce (Amex)',property:'Hampton',country:'US',auto:true,card:'American Express',day:4,amounts:[2347.57,6897.01,0,2832.23,4258.91,0,null,null,null,null,null,null]},
+  {key:'divorce',short:'Divorce (Amex)',property:'Legal Fees',country:'US',auto:true,card:'American Express',day:4,amounts:[2347.57,6897.01,0,2832.23,4258.91,0,null,null,null,null,null,null]},
   {key:'rankin-loan',short:'Rankin Loan (McDonough)',property:'McDonough',country:'US',auto:true,card:'Truist',day:7,amounts:[1000,1000,1000,1000,727.22,727.22,null,null,null,null,null,null]},
   {key:'cobra-ins',short:'Cobra Insurance',property:'Hampton',country:'US',auto:true,card:'Truist',day:7,amounts:[596.24,654,381.76,381.76,381.76,381.76,null,null,null,null,null,null]},
   {key:'hampton-elec',short:'Hampton Electricity',property:'Hampton',country:'US',auto:true,card:'Truist',day:26,amounts:[131.40,109.89,98.37,107.95,118.55,null,null,null,null,null,null,null]},
@@ -1516,7 +1516,7 @@ function renderBills(){
   else if(billsGroupBy==='property'){
     const byProp={};
     allBills.forEach(b=>{if(!byProp[b.property])byProp[b.property]=[];byProp[b.property].push(b);});
-    const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Credit Card','Personal'];
+    const propOrder=['Hampton','Pembroke Pines','Lithonia','McDonough','Nila','Ciudad Colon','Haiti','Credit Card','Legal Fees','Personal'];
     const ordered=[...propOrder.filter(p=>byProp[p]),...Object.keys(byProp).filter(p=>!propOrder.includes(p))];
     ordered.forEach(prop=>{html+=grpHdr(prop,byProp[prop]);html+=renderGroup(byProp[prop]);});
   }else{
