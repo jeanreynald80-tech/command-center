@@ -1427,10 +1427,10 @@ function renderBills(){
       actionBtn='<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+billsMonth+','+year+','+isCRC+')" style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap;">+ Enter Amount</button>';
     }else if(isCRC){
       const usdEquiv=crcToUSD(parseFloat(b.amount));
-      amtDisplay='<div style="text-align:right;"><div style="font-size:18px;font-weight:700;color:var(--text3);">\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()+'</div><div style="font-size:10px;color:var(--text3);">\u2248 $'+usdEquiv.toFixed(2)+'</div></div>';
+      amtDisplay='<div style="text-align:right;"><div style="font-size:18px;font-weight:700;color:var(--green);">\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()+'</div><div style="font-size:10px;color:var(--green);">\u2248 $'+usdEquiv.toFixed(2)+'</div></div>';
       actionBtn='<button onclick="event.stopPropagation();clearBillAmount(\''+b.key+'\','+billsMonth+','+year+')" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">\u2715 clear</button>';
     }else{
-      amtDisplay='<div style="font-size:18px;font-weight:700;color:var(--text3);">$'+parseFloat(b.amount).toFixed(2)+'</div>';
+      amtDisplay='<div style="font-size:18px;font-weight:700;color:var(--green);">$'+parseFloat(b.amount).toFixed(2)+'</div>';
       actionBtn='<button onclick="event.stopPropagation();clearBillAmount(\''+b.key+'\','+billsMonth+','+year+')" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;margin-top:4px;">\u2715 clear</button>';
     }
     // Custom bills: amount may be set but bill is only PAID when explicitly marked.
