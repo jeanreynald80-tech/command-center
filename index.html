@@ -366,7 +366,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v3</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v4</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -411,7 +411,7 @@ import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app
 const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
 
-let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,firebaseReady=false;
+let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,firebaseReady=false;
 let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={};
 let usdCRC = 500;
 let usdCRCLastFetched = 0;
@@ -451,16 +451,16 @@ Object.defineProperty(window,'billsGroupBy',{get:()=>billsGroupBy,set:v=>{billsG
 Object.defineProperty(window,'billsStatusFilter',{get:()=>billsStatusFilter,set:v=>{billsStatusFilter=v;}});
 Object.defineProperty(window,'billsView',{get:()=>billsView,set:v=>{billsView=v;}});
 // Custom bill day overrides stored in memory (and localStorage for persistence)
-let billDayOverrides = JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
+let billDayOverrides = {}; // synced from Firebase (billdayoverrides collection)
 window.saveBillDayOverride = function(key, day) {
   billDayOverrides[key] = parseInt(day);
-  localStorage.setItem('billDayOverrides', JSON.stringify(billDayOverrides));
+  if(firebaseReady){ setDoc(doc(db,'billdayoverrides',key),{value:parseInt(day),updatedAt:Date.now()}); }
   renderBills();
 };
 
 // Amount overrides: stores actual paid amount per bill key+month+year
 // key format: billkey-year-month
-let billAmountOverrides = JSON.parse(localStorage.getItem('billAmountOverrides')||'{}');
+let billAmountOverrides = {}; // synced from Firebase (billoverrides collection)
 function billAmountKey(key,month,year){return key+'-'+year+'-'+month;}
 window.enterBillAmount = function(key,month,year,isCRC){
   const existing = billAmountOverrides[billAmountKey(key,month,year)];
@@ -469,15 +469,17 @@ window.enterBillAmount = function(key,month,year,isCRC){
   if(val===null)return; // cancelled
   const parsed = parseFloat(val.replace(/[^0-9.]/g,''));
   if(!isNaN(parsed)&&parsed>=0){
-    billAmountOverrides[billAmountKey(key,month,year)] = parsed;
-    localStorage.setItem('billAmountOverrides', JSON.stringify(billAmountOverrides));
+    const okey=billAmountKey(key,month,year);
+    billAmountOverrides[okey] = parsed;
+    if(firebaseReady){ setDoc(doc(db,'billoverrides',okey),{value:parsed,updatedAt:Date.now()}); }
     renderBills();
   }
 };
 window.clearBillAmount = function(key,month,year){
   if(!confirm('Clear amount for this bill?'))return;
-  delete billAmountOverrides[billAmountKey(key,month,year)];
-  localStorage.setItem('billAmountOverrides', JSON.stringify(billAmountOverrides));
+  const okey=billAmountKey(key,month,year);
+  delete billAmountOverrides[okey];
+  if(firebaseReady){ deleteDoc(doc(db,'billoverrides',okey)); }
   renderBills();
 };
 let editingTaskId=null,editingExpId=null;
@@ -498,7 +500,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v3';
+const APP_VERSION='v4';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -547,8 +549,20 @@ async function initApp(){
   try{
     const app=getApps().length?getApps()[0]:initializeApp(FB);
     db=getFirestore(app);
-    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');
+    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');amtOvCol=collection(db,'billoverrides');dayOvCol=collection(db,'billdayoverrides');
     firebaseReady=true;
+    // ONE-TIME MIGRATION: push any legacy localStorage overrides into Firebase so
+    // amounts entered on this device before the cloud-sync fix aren't lost, and
+    // become visible on all devices. Runs once per device.
+    try{
+      if(!localStorage.getItem('overridesMigrated')){
+        const legacyAmt=JSON.parse(localStorage.getItem('billAmountOverrides')||'{}');
+        const legacyDay=JSON.parse(localStorage.getItem('billDayOverrides')||'{}');
+        for(const k in legacyAmt){ if(legacyAmt[k]!=null){ setDoc(doc(db,'billoverrides',k),{value:legacyAmt[k],updatedAt:Date.now()}); } }
+        for(const k in legacyDay){ if(legacyDay[k]!=null){ setDoc(doc(db,'billdayoverrides',k),{value:legacyDay[k],updatedAt:Date.now()}); } }
+        localStorage.setItem('overridesMigrated','1');
+      }
+    }catch(e){ console.warn('override migration skipped',e); }
     const[tSnap,eSnap,lSnap]=await Promise.all([getDocs(tasksCol),getDocs(expCol),getDocs(litCol)]);
     if(tSnap.empty){for(const t of TASK_SEED)await addDoc(tasksCol,t);}
     if(lSnap.empty){for(const e of LIT_SEED)await addDoc(litCol,e);}
@@ -564,6 +578,8 @@ async function initApp(){
     onSnapshot(billsCol,snap=>{billsPaid={};snap.docs.forEach(d=>{billsPaid[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(customBillsCol,snap=>{customBills=snap.docs.map(d=>({id:d.id,...d.data()}));if(activeTab==='bills')renderBills();else render();});
     onSnapshot(userNotesCol,snap=>{userNotes={};snap.docs.forEach(d=>{userNotes[d.id]=d.data().text;});if(activeTab==='bills')renderBills();});
+    onSnapshot(amtOvCol,snap=>{billAmountOverrides={};snap.docs.forEach(d=>{var v=d.data().value;billAmountOverrides[d.id]=v;});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(dayOvCol,snap=>{billDayOverrides={};snap.docs.forEach(d=>{billDayOverrides[d.id]=d.data().value;});if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
     setTimeout(async function() {
