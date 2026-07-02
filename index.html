@@ -304,7 +304,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="modal-title">Add New Bill</div>
       <div class="field"><label class="field-lbl">Bill Name</label><input class="field-inp" id="ab-name" type="text" placeholder="e.g. Internet, HOA, Insurance"></div>
       <div class="field"><label class="field-lbl">Property</label>
-        <select class="field-inp" id="ab-property">
+        <select class="field-inp" id="ab-property" onchange="autoCurrency()">
           <option>Hampton</option><option>Pembroke Pines</option><option>Lithonia</option>
           <option>McDonough</option><option>Nila</option><option>Ciudad Colon</option><option>Haiti</option><option>Credit Card</option><option>Legal Fees</option>
         </select>
@@ -588,6 +588,11 @@ window.navTo=function(tab,taskCat,expSec){
 window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
 window.setBillsType=function(t){billsTypeFilter=billsTypeFilter===t?'':t;if(t!=='nonregular')billsYearView=false;renderBills();};
 window.setBillsYearView=function(v){billsYearView=v;renderBills();};
+window.autoCurrency=function(){
+  var p=document.getElementById('ab-property').value;
+  var cur=document.getElementById('ab-currency');
+  if(p==='Ciudad Colon'||p==='Nila'){cur.value='CRC';}else{cur.value='USD';}
+};
 window.openAddBillModal=function(){
   document.getElementById('add-bill-modal').classList.add('open');
   document.getElementById('ab-name').value='';
@@ -1000,14 +1005,14 @@ const REGULAR_BILLS=[
   {key:'nila-txfee',short:'Nila Transaction Fee',property:'Nila',country:'Costa Rica',auto:false,card:'BNCR',day:1,currency:'CRC',amounts:[1500,1500,1500,1500,1500,1500,null,null,null,null,null,null]},
   {key:'nila-contador',short:'Nila Contador',property:'Nila',country:'Costa Rica',auto:false,card:'Sinpe',day:15,currency:'CRC',amounts:[20000,20000,20000,20000,20000,null,null,null,null,null,null,null]},
   {key:'nila-ccss',short:'Nila CCSS',property:'Nila',country:'Costa Rica',auto:false,card:'Banco Nacional',day:16,currency:'CRC',amounts:[68059,69542,69542,69542,69542,null,null,null,null,null,null,null]},
-  {key:'chase-marriott',short:'Chase Marriott Bonvoy',property:'Nila',country:'Costa Rica',auto:false,card:'Manual',day:5,amounts:[146.52,0.30,195.88,0.38,0.43,312.25,null,null,null,null,null,null]},
+  {key:'chase-marriott',short:'Chase Marriott Bonvoy',property:'Nila',country:'Costa Rica',auto:false,card:'Manual',day:5,amounts:[66667,136,89125,173,196,142074,null,null,null,null,null,null],currency:'CRC'},
   {key:'nila-trab',short:'Nila Trabajador Independiente',property:'Nila',country:'Costa Rica',auto:false,card:'BNFC',day:3,currency:'CRC',amounts:[36341,36341,36341,36341,36341,36341,null,null,null,null,null,null]},
   {key:'nila-elec',short:'Nila Electricity',property:'Nila',country:'Costa Rica',auto:false,card:'BNCR',day:4,currency:'CRC',amounts:[44845,13340,9910,17600,18065,14360,null,null,null,null,null,null]},
   {key:'liberty-cell',short:'Liberty Cellular',property:'Ciudad Colon',country:'Costa Rica',auto:true,card:'Scotia Bank',day:6,currency:'CRC',amounts:[47958,47958,47958,47958,47958,47958,null,null,null,null,null,null]},
   {key:'ciudad-hoa',short:'Ciudad Colon HOA',property:'Ciudad Colon',country:'Costa Rica',auto:false,card:'Scotia Bank',day:2,currency:'CRC',amounts:[91500,91500,91500,91500,91500,103500,null,null,null,null,null,null]},
   {key:'ciudad-elec',short:'Ciudad Electricity',property:'Ciudad Colon',country:'Costa Rica',auto:false,card:'Scotia Bank',day:2,currency:'CRC',amounts:[44845,47695,10325,51610,28415,5260,null,null,null,null,null,null]},
   {key:'ciudad-agua',short:'Ciudad Water',property:'Ciudad Colon',country:'Costa Rica',auto:false,card:'Manual',day:9,currency:'CRC',amounts:[9456,5720,5720,8045,5255,null,null,null,null,null,null,null]},
-  {key:'medismart',short:'MediSmart',property:'Ciudad Colon',country:'Costa Rica',auto:true,card:'American Express',day:13,amounts:[21.76,21.76,21.76,21.76,null,null,null,null,null,null,null,null]},
+  {key:'medismart',short:'MediSmart',property:'Ciudad Colon',country:'Costa Rica',auto:true,card:'American Express',day:13,amounts:[9901,9901,9901,9901,null,null,null,null,null,null,null,null],currency:'CRC'},
 ];
 
 const YEARLY_BILLS=[
@@ -1047,19 +1052,19 @@ const YEARLY_BILLS=[
   {key:'mcdonough-home-ins',short:'McDonough Home Insurance (Travelers)',property:'McDonough',month:10,day:30,amount:null},
   {key:'mcdonough-tax',short:'McDonough Property Taxes',property:'McDonough',month:11,day:15,amount:null},
   // ── Nila ─────────────────────────────────────────────────────
-  {key:'nila-juridica',short:'Nila Impuesto Persona Juridica',property:'Nila',month:1,day:31,amount:230},
-  {key:'nila-rtbf',short:'Nila Declaracion RTBF',property:'Nila',month:4,day:30,amount:334.92},
-  {key:'nila-gti',short:'Nila GTI Facturacion',property:'Nila',month:4,day:21,amount:51.29},
-  {key:'nila-patente',short:'Nila Patente Tax Declaration',property:'Nila',month:4,day:30,amount:null},
-  {key:'nila-ins-renewal',short:'Nila Insurance Renewal (INS Riesgo)',property:'Nila',month:11,day:21,amount:null},
+  {key:'nila-juridica',short:'Nila Impuesto Persona Juridica',property:'Nila',month:1,day:31,amount:104650,currency:'CRC'},
+  {key:'nila-rtbf',short:'Nila Declaracion RTBF',property:'Nila',month:4,day:30,amount:152389,currency:'CRC'},
+  {key:'nila-gti',short:'Nila GTI Facturacion',property:'Nila',month:4,day:21,amount:23337,currency:'CRC'},
+  {key:'nila-patente',short:'Nila Patente Tax Declaration',property:'Nila',month:4,day:30,amount:null,currency:'CRC'},
+  {key:'nila-ins-renewal',short:'Nila Insurance Renewal (INS Riesgo)',property:'Nila',month:11,day:21,amount:null,currency:'CRC'},
   // ── Ciudad Colon ─────────────────────────────────────────────
-  {key:'ciudad-home-ins',short:'Ciudad Colon Home Insurance',property:'Ciudad Colon',month:1,day:25,amount:560.06},
-  {key:'ciudad-prop-tax',short:'Ciudad Colon Property Taxes',property:'Ciudad Colon',month:1,day:5,amount:666.24},
-  {key:'ciudad-rtv',short:'Ciudad Colon RTV',property:'Ciudad Colon',month:4,day:1,amount:14.92},
-  {key:'ciudad-car-ins',short:'Ciudad Colon Car Insurance',property:'Ciudad Colon',month:5,day:1,amount:609.69},
-  {key:'ciudad-music',short:'Ciudad Municipalidad Music Payment',property:'Ciudad Colon',month:7,day:31,amount:null},
-  {key:'hacienda-cr',short:'Hacienda Costa Rica',property:'Ciudad Colon',month:11,day:30,amount:null},
-  {key:'ciudad-marchamo',short:'Ciudad Colon Marchamo',property:'Ciudad Colon',month:12,day:15,amount:null},
+  {key:'ciudad-home-ins',short:'Ciudad Colon Home Insurance',property:'Ciudad Colon',month:1,day:25,amount:254827,currency:'CRC'},
+  {key:'ciudad-prop-tax',short:'Ciudad Colon Property Taxes',property:'Ciudad Colon',month:1,day:5,amount:303139,currency:'CRC'},
+  {key:'ciudad-rtv',short:'Ciudad Colon RTV',property:'Ciudad Colon',month:4,day:1,amount:6789,currency:'CRC'},
+  {key:'ciudad-car-ins',short:'Ciudad Colon Car Insurance',property:'Ciudad Colon',month:5,day:1,amount:277409,currency:'CRC'},
+  {key:'ciudad-music',short:'Ciudad Municipalidad Music Payment',property:'Ciudad Colon',month:7,day:31,amount:null,currency:'CRC'},
+  {key:'hacienda-cr',short:'Hacienda Costa Rica',property:'Ciudad Colon',month:11,day:30,amount:null,currency:'CRC'},
+  {key:'ciudad-marchamo',short:'Ciudad Colon Marchamo',property:'Ciudad Colon',month:12,day:15,amount:null,currency:'CRC'},
   // ── Haiti ────────────────────────────────────────────────────
   {key:'haiti-sheila',short:'Haiti Lease Renewal (Sheila Dimanche)',property:'Haiti',month:9,day:1,amount:null},
   {key:'haiti-marie',short:'Haiti Lease Renewal (Marie Carole Chery)',property:'Haiti',month:9,day:1,amount:null},
