@@ -285,6 +285,27 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     </div>
   </div>
 
+  <!-- DELETE BILL MODAL -->
+  <div class="overlay" id="del-modal">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-title">Delete Bill</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">What would you like to do with <strong id="del-modal-name">this bill</strong>?</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin:16px 0;">
+        <button onclick="deleteBillFromMonth()" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--blue-bg);color:var(--accent);cursor:pointer;font-size:13px;font-weight:600;">
+          <span id="del-modal-fromlabel">Delete from this month forward (keep earlier months)</span>
+          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Prior months stay exactly as they are. The bill just stops going forward.</div>
+        </button>
+        <button onclick="deleteBillEntirely()" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:13px;font-weight:600;">
+          Delete entire bill (including all history)
+          <div style="font-size:11px;font-weight:400;color:#b91c1c;margin-top:3px;">Removes it from every month, past and future. Cannot be undone easily.</div>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- NOTE MODAL -->
   <div class="overlay" id="note-modal">
     <div class="modal" style="max-width:520px;">
@@ -366,7 +387,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v4</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v5</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -411,8 +432,8 @@ import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app
 const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
 
-let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,firebaseReady=false;
-let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={};
+let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,billEndsCol,billDeletedCol,firebaseReady=false;
+let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={},billEnds={},billDeleted={};
 let usdCRC = 500;
 let usdCRCLastFetched = 0;
 
@@ -500,7 +521,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v4';
+const APP_VERSION='v5';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -549,7 +570,7 @@ async function initApp(){
   try{
     const app=getApps().length?getApps()[0]:initializeApp(FB);
     db=getFirestore(app);
-    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');amtOvCol=collection(db,'billoverrides');dayOvCol=collection(db,'billdayoverrides');
+    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');amtOvCol=collection(db,'billoverrides');dayOvCol=collection(db,'billdayoverrides');billEndsCol=collection(db,'billends');billDeletedCol=collection(db,'billdeleted');
     firebaseReady=true;
     // ONE-TIME MIGRATION: push any legacy localStorage overrides into Firebase so
     // amounts entered on this device before the cloud-sync fix aren't lost, and
@@ -580,6 +601,8 @@ async function initApp(){
     onSnapshot(userNotesCol,snap=>{userNotes={};snap.docs.forEach(d=>{userNotes[d.id]=d.data().text;});if(activeTab==='bills')renderBills();});
     onSnapshot(amtOvCol,snap=>{billAmountOverrides={};snap.docs.forEach(d=>{var v=d.data().value;billAmountOverrides[d.id]=v;});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(dayOvCol,snap=>{billDayOverrides={};snap.docs.forEach(d=>{billDayOverrides[d.id]=d.data().value;});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(billEndsCol,snap=>{billEnds={};snap.docs.forEach(d=>{billEnds[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(billDeletedCol,snap=>{billDeleted={};snap.docs.forEach(d=>{billDeleted[d.id]=true;});if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
     setTimeout(async function() {
@@ -688,10 +711,48 @@ window.submitAddBill=async function(){
   else{customBills.push({id:'local-'+Date.now(),...bill});renderBills();}
   closeAddBillModal();
 };
-window.deleteCustomBill=async function(id){
-  if(!confirm('Delete this bill?'))return;
-  if(firebaseReady)await deleteDoc(doc(db,'custombills',id));
-  else{customBills=customBills.filter(b=>b.id!==id);renderBills();}
+// ── DELETE BILL FLOW (asks: whole history, or from this month forward) ──────
+let pendingDeleteKey=null, pendingDeleteName='', pendingDeleteIsCustom=false;
+window.promptDeleteBill=function(key,name,isCustom){
+  pendingDeleteKey=key;
+  pendingDeleteName=name||'this bill';
+  pendingDeleteIsCustom=!!isCustom;
+  const MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('del-modal-name').textContent=pendingDeleteName;
+  document.getElementById('del-modal-fromlabel').textContent='Delete from '+MN[billsMonth-1]+' '+new Date().getFullYear()+' forward (keep earlier months)';
+  document.getElementById('del-modal').classList.add('open');
+};
+window.closeDeleteModal=function(){document.getElementById('del-modal').classList.remove('open');pendingDeleteKey=null;};
+// Option 1: delete the entire bill including all history
+window.deleteBillEntirely=async function(){
+  const key=pendingDeleteKey, isCustom=pendingDeleteIsCustom;
+  if(!key){closeDeleteModal();return;}
+  if(isCustom){
+    if(firebaseReady)await deleteDoc(doc(db,'custombills',key));
+    else{customBills=customBills.filter(b=>b.id!==key);}
+  }else{
+    // Pre-filled bill: mark as fully deleted so it disappears from all months.
+    billDeleted[key]=true;
+    if(firebaseReady)await setDoc(doc(db,'billdeleted',key),{deleted:true,at:Date.now()});
+  }
+  // Also clear any end-marker for this key.
+  if(billEnds[key]){delete billEnds[key];if(firebaseReady)await deleteDoc(doc(db,'billends',key));}
+  window.closeDeleteModal();renderBills();
+};
+// Option 2: keep history, stop the bill from the currently-viewed month forward
+window.deleteBillFromMonth=async function(){
+  const key=pendingDeleteKey;
+  if(!key){closeDeleteModal();return;}
+  const endData={month:billsMonth,year:new Date().getFullYear(),at:Date.now()};
+  billEnds[key]=endData;
+  if(firebaseReady)await setDoc(doc(db,'billends',key),endData);
+  window.closeDeleteModal();renderBills();
+};
+// Reactivate a bill that was ended (optional safety).
+window.reactivateBill=async function(key){
+  if(billEnds[key]){delete billEnds[key];if(firebaseReady)await deleteDoc(doc(db,'billends',key));}
+  if(billDeleted[key]){delete billDeleted[key];if(firebaseReady)await deleteDoc(doc(db,'billdeleted',key));}
+  renderBills();
 };
 window.renderSidebar=renderSidebar;
 window.renderBills=renderBills;
@@ -1032,6 +1093,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='exp-modal')window.closeExpModal();
   if(e.target.id==='add-bill-modal')window.closeAddBillModal();
   if(e.target.id==='note-modal')window.closeBillNote();
+  if(e.target.id==='del-modal')window.closeDeleteModal();
 });
 
 // Back to top
@@ -1295,7 +1357,18 @@ function renderBills(){
       if(billsTypeFilter==='regular')return false;
       return true;
     });
-    return bills.concat(custom);
+    var combined=bills.concat(custom);
+    // Apply "ended" (delete from month forward) and "fully deleted" filters.
+    combined=combined.filter(function(b){
+      if(billDeleted[b.key])return false; // fully deleted everywhere
+      var end=billEnds[b.key];
+      if(end){
+        // Hide from the end month/year onward; keep prior months intact.
+        if(year>end.year || (year===end.year && month>=end.month))return false;
+      }
+      return true;
+    });
+    return combined;
   }
 
   const allBills=getBillsForMonth(billsMonth);
@@ -1528,10 +1601,10 @@ function renderBills(){
     const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
     return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:'+(amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff')+';border:1px solid '+(isOverdue&&!amtPaid?'#fca5a5':'var(--border)')+';border-top:none;opacity:'+(amtPaid?'.8':'1')+';">'+
       '<div style="flex:1;min-width:0;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+'</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+(b.btype!=='custom'?'<button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',false)" title="Delete bill" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.45;color:#dc2626;">✕</button>':'')+'</div>'+
       '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
       '</div>'+
-      '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+(b.btype==='custom'?'<br><button onclick="event.stopPropagation();deleteCustomBill(\''+b.key+'\')" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;margin-top:4px;">✕ delete</button>':'')+'</div>'+
+      '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+(b.btype==='custom'?'<br><button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',true)" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;margin-top:4px;">✕ delete</button>':'')+'</div>'+
       '</div>';
   }
 
