@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Command Center — Reynald</title>
 <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700|dm-mono:400,500" rel="stylesheet">
 <style>
@@ -363,7 +366,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v2</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v3</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -491,6 +494,44 @@ window.addEventListener('DOMContentLoaded',()=>{
   if(sessionStorage.getItem('unlocked')==='1'){initApp();}
   else{document.getElementById('pin-screen').style.display='flex';document.getElementById('pin-input').focus();}
 });
+
+// ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
+// The app version. Bump this string whenever code changes; devices running an
+// older cached copy will detect the mismatch and hard-reload to the newest code.
+const APP_VERSION='v3';
+(function(){
+  // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
+  //    re-render so the latest live Firebase data is shown immediately.
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible' && firebaseReady){
+      try{ if(typeof render==='function') render(); }catch(e){}
+    }
+  });
+  window.addEventListener('focus',()=>{
+    if(firebaseReady){ try{ if(typeof render==='function') render(); }catch(e){} }
+  });
+
+  // 2) Version check: fetch the live index.html (bypassing cache) and compare the
+  //    embedded version marker. If the server has a newer version than what's
+  //    running, force a hard reload so this device picks up the latest code.
+  async function checkVersion(){
+    try{
+      const resp=await fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'});
+      const text=await resp.text();
+      const m=text.match(/const APP_VERSION='([^']+)'/);
+      if(m && m[1] && m[1]!==APP_VERSION){
+        // A newer version is deployed — reload once to get it.
+        if(!sessionStorage.getItem('reloadedForVersion_'+m[1])){
+          sessionStorage.setItem('reloadedForVersion_'+m[1],'1');
+          location.reload(true);
+        }
+      }
+    }catch(e){/* offline or fetch blocked — ignore, live data still syncs */}
+  }
+  // Check on load and whenever the tab regains focus.
+  checkVersion();
+  window.addEventListener('focus',checkVersion);
+})();
 window.submitPin=function(){
   if(document.getElementById('pin-input').value===PIN){sessionStorage.setItem('unlocked','1');document.getElementById('pin-screen').style.display='none';initApp();}
   else{document.getElementById('pin-error').style.display='block';document.getElementById('pin-input').value='';}
