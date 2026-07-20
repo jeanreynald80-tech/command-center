@@ -387,7 +387,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v5</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v6</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -521,7 +521,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v5';
+const APP_VERSION='v6';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -775,8 +775,8 @@ function render(){
 }
 
 function renderSidebar(){
-  const billsDueThisMonth=getBillsDueThisMonth(new Date().getMonth()+1);
-  const billsUnpaid=billsDueThisMonth.filter(b=>!isBillPaid(b.key,new Date().getMonth()+1,new Date().getFullYear())).length;
+  // Nav badge uses the same shared calculation as Home and Bill Trackers.
+  const billsUnpaid=monthBillStats(new Date().getMonth()+1).pendCount;
   const urgentCount=tasks.filter(t=>!t.done&&t.tag==='urgent').length;
   const tabs=[
     {id:'home',label:'🏠 Home',badge:null},
@@ -811,21 +811,85 @@ function renderSidebar(){
     subNav.innerHTML=PROPS.map(p=>{const v=p==='All'?'':p;const act=billsPropFilter===v?' active':'';return '<div class="sub-tab'+act+'" onclick="navToBills(\''+v+'\');">'+p+'</div>';}).join('');
   }else{subNav.style.display='none';}
 };
+// ── SHARED MONTH TOTALS (single source of truth for Home + Bill Trackers) ────
+// Mirrors the Bill Trackers rules exactly so the dashboard can never disagree
+// with the Bills page: includes custom bills, honours deleted/ended bills, uses
+// the real per-month paid flag for custom bills, and excludes future-month
+// unpaid amounts from totals.
+function monthBillStats(month){
+  const year=new Date().getFullYear();
+  const today=new Date();
+  const todayMonth=today.getMonth()+1;
+  const mi=month-1;
+
+  // Regular + yearly (pre-filled) bills due this month
+  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined)
+    .map(b=>({...b,amount:b.amounts[mi],btype:'regular',forMonth:month}));
+  const yearly=YEARLY_BILLS.filter(b=>{
+    if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month]!==undefined;
+    return b.month===month;
+  }).map(b=>{
+    if(b.btype==='multi-yearly'){
+      const mm=b.multiMonths[month];
+      return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day,btype:'yearly',forMonth:month};
+    }
+    return {...b,btype:'yearly',forMonth:month};
+  });
+
+  // Custom bills (added by the user) — same expansion the Bills page performs
+  const custom=customBills.map(b=>{
+    const sM=b.startMonth||1, sY=b.startYear||year;
+    const beforeStart=(year<sY)||(year===sY&&month<sM);
+    if(b.freq==='annual'&&b.month!==month) return null;
+    const ov=billAmountOverrides[billAmountKey(b.id,month,year)];
+    return {...b,key:b.id,btype:'custom',forMonth:month,preStart:beforeStart,
+            amount:beforeStart?0:(ov!==undefined?ov:b.amount)};
+  }).filter(Boolean);
+
+  let all=regular.concat(yearly).concat(custom);
+
+  // Honour deleted / ended bills
+  all=all.filter(b=>{
+    if(billDeleted[b.key]) return false;
+    const end=billEnds[b.key];
+    if(end && (year>end.year || (year===end.year && month>=end.month))) return false;
+    return true;
+  });
+
+  // Apply amount overrides for pre-filled bills
+  all=all.map(b=>{
+    if(b.btype==='custom') return b;
+    const ov=billAmountOverrides[billAmountKey(b.key,month,year)];
+    return ov!==undefined?{...b,amount:ov}:b;
+  });
+
+  const isFuture=(month>todayMonth);
+  const paidOf=b=>{
+    if(b.btype==='custom') return b.preStart?true:isBillPaid(b.key,month,year);
+    return b.amount!==null&&b.amount!==undefined;
+  };
+
+  let paidCount=0,pendCount=0,paidAmt=0,totalAmt=0;
+  all.forEach(b=>{
+    const p=paidOf(b);
+    const hasAmt=b.amount!==null&&b.amount!==undefined;
+    const futUnpaid=isFuture&&hasAmt&&!p;      // future + unpaid => excluded from totals
+    const usd=(!hasAmt||futUnpaid)?0:(b.currency==='CRC'?crcToUSD(parseFloat(b.amount)||0):(parseFloat(b.amount)||0));
+    if(p&&!futUnpaid){paidCount++;paidAmt+=usd;}else{pendCount++;}
+    totalAmt+=usd;
+  });
+  return {bills:all,total:all.length,paidCount,pendCount,paidAmt,totalAmt};
+}
+
 function renderHome(){
   const eT=expenses.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const lT=lithonia.reduce((s,e)=>s+(parseFloat(e.amount)||0),0);
   const cmonth=new Date().getMonth()+1, cyear=new Date().getFullYear();
-  // Bills paid/pending for current month (by amount entered)
-  const billsThisMonth=getBillsDueThisMonth(cmonth);
-  let paidCount=0, pendCount=0, paidAmt=0, pendAmt=0;
-  billsThisMonth.forEach(b=>{
-    const amtKey=billAmountKey(b.key,cmonth,cyear);
-    const ov=billAmountOverrides[amtKey];
-    const amt=ov!==undefined?ov:b.amount;
-    const isPaid=amt!==null&&amt!==undefined;
-    const usd=b.currency==='CRC'?crcToUSD(parseFloat(amt)||0):(parseFloat(amt)||0);
-    if(isPaid){paidCount++;paidAmt+=usd;}else{pendCount++;}
-  });
+  // Bills paid/pending for current month — uses the SAME shared calculation as
+  // the Bill Trackers page so the two screens always agree.
+  const stats=monthBillStats(cmonth);
+  const billsThisMonth=stats.bills;
+  const paidCount=stats.paidCount, pendCount=stats.pendCount, paidAmt=stats.paidAmt;
   let html=`<div class="home-grid">
     <div class="home-card" onclick="navTo('tasks','all')">
       <div class="home-card-lbl">Tasks</div>
@@ -1242,22 +1306,6 @@ window.saveBillNote=async function(){
   window.closeBillNote();
 };
 window.closeBillNote=function(){document.getElementById('note-modal').classList.remove('open');editingNoteKey=null;};
-
-function getBillsDueThisMonth(month){
-  const mi=month-1;
-  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined).map(b=>({...b,amount:b.amounts[mi],type:'regular'}));
-  const yearly=YEARLY_BILLS.filter(b=>{
-    if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month] !== undefined;
-    return b.month===month;
-  }).map(b=>{
-    if(b.btype==='multi-yearly'){
-      const mm=b.multiMonths[month];
-      return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day,type:'yearly'};
-    }
-    return {...b,type:'yearly'};
-  });
-  return [...regular,...yearly];
-}
 
 function isBillPaid(key,month,year){
   const k=key+'-'+year+'-'+month;
