@@ -285,6 +285,30 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     </div>
   </div>
 
+  <!-- EDIT FREQUENCY MODAL -->
+  <div class="overlay" id="freq-modal">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-title">Edit Bill Frequency</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:4px;"><strong id="freq-modal-name">this bill</strong></div>
+      <div id="freq-modal-current" style="font-size:12px;color:var(--text3);margin-bottom:16px;"></div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">Change how often this bill appears. This applies to <strong>every month</strong> automatically.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button onclick="setBillFrequency('monthly')" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--blue-bg);color:var(--accent);cursor:pointer;font-size:13px;font-weight:600;">
+          Monthly
+          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Bill appears every month, all year.</div>
+        </button>
+        <button onclick="setBillFrequency('annual')" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">
+          Non-Regular (once a year)
+          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Bill appears only in its scheduled month.</div>
+        </button>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn-cancel" onclick="closeFreqEdit()">Cancel</button>
+        <button class="btn-cancel" onclick="clearBillFrequency()" style="border-color:var(--text3);color:var(--text3);">Reset to default</button>
+      </div>
+    </div>
+  </div>
+
   <!-- DELETE BILL MODAL -->
   <div class="overlay" id="del-modal">
     <div class="modal" style="max-width:460px;">
@@ -387,7 +411,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v7</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v8</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -432,8 +456,8 @@ import { getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app
 const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
 
-let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,billEndsCol,billDeletedCol,firebaseReady=false;
-let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={},billEnds={},billDeleted={};
+let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,billEndsCol,billDeletedCol,freqOvCol,firebaseReady=false;
+let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={},billEnds={},billDeleted={},billFreqOverrides={};
 let usdCRC = 500;
 let usdCRCLastFetched = 0;
 
@@ -527,7 +551,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v7';
+const APP_VERSION='v8';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -576,7 +600,7 @@ async function initApp(){
   try{
     const app=getApps().length?getApps()[0]:initializeApp(FB);
     db=getFirestore(app);
-    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');amtOvCol=collection(db,'billoverrides');dayOvCol=collection(db,'billdayoverrides');billEndsCol=collection(db,'billends');billDeletedCol=collection(db,'billdeleted');
+    tasksCol=collection(db,'tasks');expCol=collection(db,'expenses');litCol=collection(db,'lithonia');billsCol=collection(db,'billspaid');customBillsCol=collection(db,'custombills');userNotesCol=collection(db,'usernotes');amtOvCol=collection(db,'billoverrides');dayOvCol=collection(db,'billdayoverrides');billEndsCol=collection(db,'billends');billDeletedCol=collection(db,'billdeleted');freqOvCol=collection(db,'billfreqoverrides');
     firebaseReady=true;
     // ONE-TIME MIGRATION: push any legacy localStorage overrides into Firebase so
     // amounts entered on this device before the cloud-sync fix aren't lost, and
@@ -609,6 +633,7 @@ async function initApp(){
     onSnapshot(dayOvCol,snap=>{billDayOverrides={};snap.docs.forEach(d=>{billDayOverrides[d.id]=d.data().value;});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(billEndsCol,snap=>{billEnds={};snap.docs.forEach(d=>{billEnds[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(billDeletedCol,snap=>{billDeleted={};snap.docs.forEach(d=>{billDeleted[d.id]=true;});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(freqOvCol,snap=>{billFreqOverrides={};snap.docs.forEach(d=>{billFreqOverrides[d.id]=d.data().freq;});if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
     setTimeout(async function() {
@@ -717,6 +742,34 @@ window.submitAddBill=async function(){
   else{customBills.push({id:'local-'+Date.now(),...bill});renderBills();}
   closeAddBillModal();
 };
+// ── EDIT BILL FREQUENCY (change once, applies to every month) ────────────────
+let editFreqKey=null, editFreqName='';
+window.openFreqEdit=function(key,name,currentType){
+  editFreqKey=key; editFreqName=name||'this bill';
+  document.getElementById('freq-modal-name').textContent=editFreqName;
+  // current effective frequency: override wins, else infer from type
+  var cur=billFreqOverrides[key] || (currentType==='regular'?'monthly':'annual');
+  document.getElementById('freq-modal-current').textContent='Currently: '+(cur==='monthly'?'Monthly (every month)':'Non-Regular (once a year)');
+  document.getElementById('freq-modal').classList.add('open');
+};
+window.closeFreqEdit=function(){document.getElementById('freq-modal').classList.remove('open');editFreqKey=null;};
+window.setBillFrequency=async function(freq){
+  const key=editFreqKey;
+  if(!key){window.closeFreqEdit();return;}
+  billFreqOverrides[key]=freq;
+  if(firebaseReady){ await setDoc(doc(db,'billfreqoverrides',key),{freq:freq,updatedAt:Date.now()}); }
+  window.closeFreqEdit();
+  renderBills();
+};
+window.clearBillFrequency=async function(){
+  const key=editFreqKey;
+  if(!key){window.closeFreqEdit();return;}
+  delete billFreqOverrides[key];
+  if(firebaseReady){ await deleteDoc(doc(db,'billfreqoverrides',key)); }
+  window.closeFreqEdit();
+  renderBills();
+};
+
 // ── DELETE BILL FLOW (asks: whole history, or from this month forward) ──────
 let pendingDeleteKey=null, pendingDeleteName='', pendingDeleteIsCustom=false;
 window.promptDeleteBill=function(key,name,isCustom){
@@ -829,12 +882,16 @@ function monthBillStats(month){
   const mi=month-1;
 
   // Regular + yearly (pre-filled) bills due this month
-  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined)
+  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined && (billFreqOverrides[b.key]!=='annual'||month===(b.annualMonth||1)))
     .map(b=>({...b,amount:b.amounts[mi],btype:'regular',forMonth:month}));
   const yearly=YEARLY_BILLS.filter(b=>{
+    if(billFreqOverrides[b.key]==='monthly') return true;
     if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month]!==undefined;
     return b.month===month;
   }).map(b=>{
+    if(billFreqOverrides[b.key]==='monthly'){
+      return {...b,btype:'yearly',forMonth:month,amount:(b.month===month?b.amount:null)};
+    }
     if(b.btype==='multi-yearly'){
       const mm=b.multiMonths[month];
       return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day,btype:'yearly',forMonth:month};
@@ -1164,6 +1221,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='add-bill-modal')window.closeAddBillModal();
   if(e.target.id==='note-modal')window.closeBillNote();
   if(e.target.id==='del-modal')window.closeDeleteModal();
+  if(e.target.id==='freq-modal')window.closeFreqEdit();
 });
 
 // Back to top
@@ -1362,11 +1420,17 @@ function renderBills(){
 
   function getBillsForMonth(month,skipStatus){
     let bills=[
-      ...REGULAR_BILLS.map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
+      ...REGULAR_BILLS.filter(b=>billFreqOverrides[b.key]!=='annual'||month===(b.annualMonth||1)).map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
       ...YEARLY_BILLS.filter(b=>{
+        // Frequency override: if the user set this bill to monthly, show it every month.
+        if(billFreqOverrides[b.key]==='monthly') return true;
         if(b.btype==='multi-yearly') return b.multiMonths && b.multiMonths[month]!==undefined;
         return b.month===month;
       }).map(b=>{
+        if(billFreqOverrides[b.key]==='monthly'){
+          // Treat as a monthly bill: no fixed amount preset (user enters per month).
+          return {...b,btype:'yearly',amount:(b.month===month?b.amount:null)};
+        }
         if(b.btype==='multi-yearly'){
           const mm=b.multiMonths[month];
           return {...b,amount:mm?mm.amount:null,day:mm?mm.day:b.day};
@@ -1655,7 +1719,7 @@ function renderBills(){
     const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
     return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:'+(amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff')+';border:1px solid '+(isOverdue&&!amtPaid?'#fca5a5':'var(--border)')+';border-top:none;opacity:'+(amtPaid?'.8':'1')+';">'+
       '<div style="flex:1;min-width:0;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+(b.btype!=='custom'?'<button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',false)" title="Delete bill" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.45;color:#dc2626;">✕</button>':'')+'</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+(b.btype!=='custom'?'<button onclick="event.stopPropagation();openFreqEdit(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',\''+(b.btype||'')+'\')" title="Edit frequency (monthly / non-regular)" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.55;">⚙</button>':'')+(b.btype!=='custom'?'<button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',false)" title="Delete bill" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.45;color:#dc2626;">✕</button>':'')+'</div>'+
       '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
       '</div>'+
       '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+(b.btype==='custom'?'<br><button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',true)" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;margin-top:4px;">✕ delete</button>':'')+'</div>'+
