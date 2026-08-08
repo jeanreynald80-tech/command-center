@@ -411,7 +411,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v10</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v11</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -551,7 +551,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v10';
+const APP_VERSION='v11';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -1424,6 +1424,17 @@ function renderBills(){
   }
   function billsMonthForRow(b){return b.forMonth||billsMonth;}
 
+  // Single source of truth for whether a bill is effectively MONTHLY.
+  // Honors the user's frequency override first, then falls back to the bill's
+  // stored type. Used by the Monthly/Non-Regular type filter AND the edit modal
+  // so they never disagree.
+  function effectiveMonthly(b){
+    var ov=billFreqOverrides[b.key];
+    if(ov==='monthly')return true;
+    if(ov==='annual')return false;
+    if(b.btype==='custom')return (b.freq||'monthly')==='monthly';
+    return b.btype==='regular';
+  }
   function getBillsForMonth(month,skipStatus){
     let bills=[
       ...REGULAR_BILLS.filter(b=>billFreqOverrides[b.key]!=='annual'||month===(billFreqAnnualMonth[b.key]||b.annualMonth||1)).map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
@@ -1454,8 +1465,8 @@ function renderBills(){
     if(billsSearch){const q=billsSearch.toLowerCase();bills=bills.filter(b=>b.short.toLowerCase().includes(q)||b.property.toLowerCase().includes(q)||(b.card||'').toLowerCase().includes(q));}
     if(!skipStatus&&billsStatusFilter==='pending') bills=bills.filter(b=>!isAmountPaid(b));
     if(!skipStatus&&billsStatusFilter==='paid') bills=bills.filter(b=>isAmountPaid(b));
-    if(billsTypeFilter==='regular') bills=bills.filter(b=>b.btype==='regular');
-    if(billsTypeFilter==='nonregular') bills=bills.filter(b=>b.btype!=='regular');
+    if(billsTypeFilter==='regular') bills=bills.filter(b=>effectiveMonthly(b));
+    if(billsTypeFilter==='nonregular') bills=bills.filter(b=>!effectiveMonthly(b));
     // custom bills from Firebase
     var custom=customBills.filter(function(b){
       var f=billFreqOverrides[b.id]||b.freq;
@@ -1479,7 +1490,10 @@ function renderBills(){
       if(billsSearch){var q=billsSearch.toLowerCase();if(!b.short.toLowerCase().includes(q)&&!b.property.toLowerCase().includes(q))return false;}
       if(!skipStatus&&billsStatusFilter==='pending'&&isAmountPaid(b))return false;
       if(!skipStatus&&billsStatusFilter==='paid'&&!isAmountPaid(b))return false;
-      if(billsTypeFilter==='regular')return false;
+      var _cf=billFreqOverrides[b.id]||b.freq||'monthly';
+      var _isMonthly=(_cf==='monthly');
+      if(billsTypeFilter==='regular'&&!_isMonthly)return false;
+      if(billsTypeFilter==='nonregular'&&_isMonthly)return false;
       return true;
     });
     var combined=bills.concat(custom);
