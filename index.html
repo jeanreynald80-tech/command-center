@@ -299,7 +299,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
         </button>
         <button onclick="setBillFrequency('annual')" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px;font-weight:600;">
           Non-Regular (once a year)
-          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Bill appears only in its scheduled month.</div>
+          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Bill appears only in the month you are currently viewing.</div>
         </button>
       </div>
       <div class="modal-actions" style="margin-top:16px;">
@@ -411,7 +411,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v9</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v10</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -457,7 +457,7 @@ const PIN = "1234";
 const FB = {apiKey:"AIzaSyBJfpYEC2vsShycznUWm-WpqivWqoWBXEw",authDomain:"reynald-tracker.firebaseapp.com",projectId:"reynald-tracker",storageBucket:"reynald-tracker.firebasestorage.app",messagingSenderId:"972889247459",appId:"1:972889247459:web:16544a2da93a1c81103fd6"};
 
 let db,tasksCol,expCol,litCol,billsCol,customBillsCol,userNotesCol,amtOvCol,dayOvCol,billEndsCol,billDeletedCol,freqOvCol,firebaseReady=false;
-let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={},billEnds={},billDeleted={},billFreqOverrides={};
+let tasks=[],expenses=[],lithonia=[],billsPaid={},customBills=[],userNotes={},billEnds={},billDeleted={},billFreqOverrides={},billFreqAnnualMonth={};
 let usdCRC = 500;
 let usdCRCLastFetched = 0;
 
@@ -551,7 +551,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v9';
+const APP_VERSION='v10';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -633,7 +633,7 @@ async function initApp(){
     onSnapshot(dayOvCol,snap=>{billDayOverrides={};snap.docs.forEach(d=>{billDayOverrides[d.id]=d.data().value;});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(billEndsCol,snap=>{billEnds={};snap.docs.forEach(d=>{billEnds[d.id]=d.data();});if(activeTab==='bills')renderBills();else render();});
     onSnapshot(billDeletedCol,snap=>{billDeleted={};snap.docs.forEach(d=>{billDeleted[d.id]=true;});if(activeTab==='bills')renderBills();else render();});
-    onSnapshot(freqOvCol,snap=>{billFreqOverrides={};snap.docs.forEach(d=>{billFreqOverrides[d.id]=d.data().freq;});if(activeTab==='bills')renderBills();else render();});
+    onSnapshot(freqOvCol,snap=>{billFreqOverrides={};billFreqAnnualMonth={};snap.docs.forEach(d=>{var dd=d.data();billFreqOverrides[d.id]=dd.freq;if(dd.annualMonth)billFreqAnnualMonth[d.id]=dd.annualMonth;});if(activeTab==='bills')renderBills();else render();});
   }catch(err){
     console.error('Firebase error:', err);
     setTimeout(async function() {
@@ -757,7 +757,12 @@ window.setBillFrequency=async function(freq){
   const key=editFreqKey;
   if(!key){window.closeFreqEdit();return;}
   billFreqOverrides[key]=freq;
-  if(firebaseReady){ await setDoc(doc(db,'billfreqoverrides',key),{freq:freq,updatedAt:Date.now()}); }
+  // For 'annual', remember WHICH month it should appear in (the month being viewed),
+  // so a bill that was monthly (and has no fixed month) still lands somewhere sensible.
+  const payload={freq:freq,updatedAt:Date.now()};
+  if(freq==='annual'){ payload.annualMonth=billsMonth; billFreqAnnualMonth[key]=billsMonth; }
+  else { delete billFreqAnnualMonth[key]; }
+  if(firebaseReady){ await setDoc(doc(db,'billfreqoverrides',key),payload); }
   window.closeFreqEdit();
   renderBills();
 };
@@ -882,7 +887,7 @@ function monthBillStats(month){
   const mi=month-1;
 
   // Regular + yearly (pre-filled) bills due this month
-  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined && (billFreqOverrides[b.key]!=='annual'||month===(b.annualMonth||1)))
+  const regular=REGULAR_BILLS.filter(b=>b.amounts[mi]!==undefined && (billFreqOverrides[b.key]!=='annual'||month===(billFreqAnnualMonth[b.key]||b.annualMonth||1)))
     .map(b=>({...b,amount:b.amounts[mi],btype:'regular',forMonth:month}));
   const yearly=YEARLY_BILLS.filter(b=>{
     if(billFreqOverrides[b.key]==='monthly') return true;
@@ -904,7 +909,7 @@ function monthBillStats(month){
     const sM=b.startMonth||1, sY=b.startYear||year;
     const beforeStart=(year<sY)||(year===sY&&month<sM);
     const cf=billFreqOverrides[b.id]||b.freq;
-    if(cf==='annual'&&b.month!==month) return null;
+    if(cf==='annual'){var _tgt=billFreqAnnualMonth[b.id]||b.month||1; if(_tgt!==month) return null;}
     const ov=billAmountOverrides[billAmountKey(b.id,month,year)];
     return {...b,key:b.id,btype:'custom',forMonth:month,preStart:beforeStart,
             amount:beforeStart?0:(ov!==undefined?ov:b.amount)};
@@ -1421,7 +1426,7 @@ function renderBills(){
 
   function getBillsForMonth(month,skipStatus){
     let bills=[
-      ...REGULAR_BILLS.filter(b=>billFreqOverrides[b.key]!=='annual'||month===(b.annualMonth||1)).map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
+      ...REGULAR_BILLS.filter(b=>billFreqOverrides[b.key]!=='annual'||month===(billFreqAnnualMonth[b.key]||b.annualMonth||1)).map(b=>({...b,amount:b.amounts[month-1],btype:'regular'})).filter(b=>b.amount!==undefined),
       ...YEARLY_BILLS.filter(b=>{
         // Frequency override: if the user set this bill to monthly, show it every month.
         if(billFreqOverrides[b.key]==='monthly') return true;
@@ -1455,7 +1460,7 @@ function renderBills(){
     var custom=customBills.filter(function(b){
       var f=billFreqOverrides[b.id]||b.freq;
       if(f==='monthly')return true;
-      if(f==='annual')return b.month===month;
+      if(f==='annual'){var tgt=billFreqAnnualMonth[b.id]||b.month||1; return tgt===month;}
       return true;
     }).map(function(b){
       var effDay=billDayOverrides[b.id]!==undefined?billDayOverrides[b.id]:b.day;
