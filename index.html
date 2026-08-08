@@ -309,6 +309,27 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     </div>
   </div>
 
+  <!-- BILLS EXPORT MODAL -->
+  <div class="overlay" id="billsexport-modal">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-title">Export Bills to Excel</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Choose what to export. The file opens in Excel or Google Sheets.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button onclick="exportBillsExcel('month')" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--blue-bg);color:var(--accent);cursor:pointer;font-size:13px;font-weight:600;">
+          This month only
+          <div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:3px;">Export the bills for the month you're currently viewing.</div>
+        </button>
+        <button onclick="exportBillsExcel('year')" style="text-align:left;padding:12px 14px;border-radius:8px;border:1px solid #a5d6a7;background:#e8f5e9;color:#1a7a2e;cursor:pointer;font-size:13px;font-weight:600;">
+          Full year (all 12 months)
+          <div style="font-size:11px;font-weight:400;color:#4b7a52;margin-top:3px;">Export every bill across all months of the year.</div>
+        </button>
+      </div>
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn-cancel" onclick="closeBillsExport()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- DELETE BILL MODAL -->
   <div class="overlay" id="del-modal">
     <div class="modal" style="max-width:460px;">
@@ -411,7 +432,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v11</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v12</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -551,7 +572,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v11';
+const APP_VERSION='v12';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -698,6 +719,50 @@ window.navTo=function(tab,taskCat,expSec){
 };
 window.navToBills=function(prop){activeTab='bills';billsPropFilter=prop;billsSearch='';billsStatusFilter='';render();};
 window.setBillsType=function(t){billsTypeFilter=billsTypeFilter===t?'':t;if(t!=='nonregular')billsYearView=false;renderBills();};
+// ── EXPORT BILLS TO EXCEL (CSV) — by month or full year ──────────────────────
+window.exportBillsExcel=function(scope){
+  const year=new Date().getFullYear();
+  const MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const rows=[];
+  const header=['Month','Property','Bill','Amount','Currency','Amount (USD)','Status','Due Day','Card','Type'];
+  const months = (scope==='year') ? [1,2,3,4,5,6,7,8,9,10,11,12] : [billsMonth];
+  months.forEach(function(m){
+    const bills=monthBillStats(m).bills; // module-level, same rules as everywhere
+    bills.forEach(function(b){
+      const paid=isAmountPaidGlobal(b,m,year);
+      const hasAmt=b.amount!==null&&b.amount!==undefined;
+      const cur=b.currency==='CRC'?'CRC':'USD';
+      const rawAmt=hasAmt?(cur==='CRC'?Math.round(parseFloat(b.amount)):parseFloat(b.amount).toFixed(2)):'';
+      const usd=hasAmt?(cur==='CRC'?crcToUSD(parseFloat(b.amount)):parseFloat(b.amount)).toFixed(2):'';
+      const type=(billFreqOverrides[b.key]||(b.btype==='regular'?'monthly':(b.btype==='custom'?(b.freq||'monthly'):'annual')));
+      rows.push([MN[m-1],b.property||'',b.short||'',rawAmt,cur,usd,paid?'Paid':'Pending',(b.effectiveDay||b.day||''),b.card||'',type==='monthly'?'Monthly':'Non-Regular']);
+    });
+  });
+  if(!rows.length){alert('No bills to export.');return;}
+  // total USD
+  const totalUSD=rows.reduce((s,r)=>s+(parseFloat(r[5])||0),0).toFixed(2);
+  rows.push(['','','TOTAL','','','' + totalUSD,'','','','']);
+  const csv=[header,...rows].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const fname='Bills_'+(scope==='year'?('FullYear_'+year):(MN[billsMonth-1]+'_'+year));
+  a.href=url;a.download=fname+'.csv';a.click();
+  URL.revokeObjectURL(url);
+  window.closeBillsExport();
+};
+// Helper: paid status for export (works outside renderBills scope)
+function isAmountPaidGlobal(b,m,year){
+  if(b.btype==='custom'){ if(b.preStart)return true; return isBillPaid(b.key,m,year); }
+  return b.amount!==null&&b.amount!==undefined;
+}
+window.openBillsExport=function(){document.getElementById('billsexport-modal').classList.add('open');};
+window.closeBillsExport=function(){document.getElementById('billsexport-modal').classList.remove('open');};
+
+window.clearBillFilters=function(){
+  billsPropFilter='';billsSearch='';billsStatusFilter='';billsTypeFilter='';billsYearView=false;
+  renderBills();
+};
 window.setBillsYearView=function(v){billsYearView=v;renderBills();};
 window.autoCurrency=function(){
   var p=document.getElementById('ab-property').value;
@@ -1228,6 +1293,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='note-modal')window.closeBillNote();
   if(e.target.id==='del-modal')window.closeDeleteModal();
   if(e.target.id==='freq-modal')window.closeFreqEdit();
+  if(e.target.id==='billsexport-modal')window.closeBillsExport();
 });
 
 // Back to top
@@ -1556,6 +1622,7 @@ function renderBills(){
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">'+vToggle+
     '<button onclick="generateBillsReport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--navy);color:#fff;display:inline-flex;align-items:center;gap:6px;">\uD83D\uDCC4 Report</button>'+
     '<button onclick="generateBillsSummaryReport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;display:inline-flex;align-items:center;gap:6px;">📊 Summary</button>'+
+    '<button onclick="openBillsExport()" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:9px 16px;border-radius:6px;border:1px solid #a5d6a7;cursor:pointer;background:#e8f5e9;color:#1a7a2e;display:inline-flex;align-items:center;gap:6px;">↓ Export Excel</button>'+
     '<button onclick="openAddBillModal()" style="font-size:11px;font-weight:700;padding:9px 16px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;">+ Add Bill</button>'+
     '</div></div>';
 
@@ -1572,7 +1639,7 @@ function renderBills(){
     '<button onclick="setBillsType(\'regular\')" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter==='regular'?'var(--accent)':'var(--border)')+';background:'+(billsTypeFilter==='regular'?'var(--blue-bg)':'#fff')+';color:'+(billsTypeFilter==='regular'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Monthly</button>'+
     '<button onclick="setBillsType(\'nonregular\')" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsTypeFilter==='nonregular'?'var(--accent)':'var(--border)')+';background:'+(billsTypeFilter==='nonregular'?'var(--blue-bg)':'#fff')+';color:'+(billsTypeFilter==='nonregular'?'var(--accent)':'var(--text3)')+';cursor:pointer;">Non-Regular</button>'+
     (billsTypeFilter==='nonregular'?'<span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span><button onclick="setBillsYearView(false)" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(!billsYearView?'var(--accent)':'var(--border)')+';background:'+(!billsYearView?'var(--blue-bg)':'#fff')+';color:'+(!billsYearView?'var(--accent)':'var(--text3)')+';cursor:pointer;">This Month</button><button onclick="setBillsYearView(true)" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:6px;border:2px solid '+(billsYearView?'var(--accent)':'var(--border)')+';background:'+(billsYearView?'var(--blue-bg)':'#fff')+';color:'+(billsYearView?'var(--accent)':'var(--text3)')+';cursor:pointer;">Full Year</button>':'')+
-    ((billsPropFilter||billsSearch||billsStatusFilter||billsTypeFilter)?'<button class="filter-clear" onclick="window.billsPropFilter=\'\';window.billsSearch=\'\';window.billsStatusFilter=\'\';billsTypeFilter=\'\';window.renderBills();window.renderSidebar();">\u2715 Clear filters</button>':'')+
+    ((billsPropFilter||billsSearch||billsStatusFilter||billsTypeFilter)?'<button class="filter-clear" onclick="clearBillFilters()">\u2715 Clear filters</button>':'')+
     '</div>';
 
   html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">'+
