@@ -411,7 +411,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v8</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v9</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -551,7 +551,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v8';
+const APP_VERSION='v9';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -903,7 +903,8 @@ function monthBillStats(month){
   const custom=customBills.map(b=>{
     const sM=b.startMonth||1, sY=b.startYear||year;
     const beforeStart=(year<sY)||(year===sY&&month<sM);
-    if(b.freq==='annual'&&b.month!==month) return null;
+    const cf=billFreqOverrides[b.id]||b.freq;
+    if(cf==='annual'&&b.month!==month) return null;
     const ov=billAmountOverrides[billAmountKey(b.id,month,year)];
     return {...b,key:b.id,btype:'custom',forMonth:month,preStart:beforeStart,
             amount:beforeStart?0:(ov!==undefined?ov:b.amount)};
@@ -1452,8 +1453,9 @@ function renderBills(){
     if(billsTypeFilter==='nonregular') bills=bills.filter(b=>b.btype!=='regular');
     // custom bills from Firebase
     var custom=customBills.filter(function(b){
-      if(b.freq==='monthly')return true;
-      if(b.freq==='annual')return b.month===month;
+      var f=billFreqOverrides[b.id]||b.freq;
+      if(f==='monthly')return true;
+      if(f==='annual')return b.month===month;
       return true;
     }).map(function(b){
       var effDay=billDayOverrides[b.id]!==undefined?billDayOverrides[b.id]:b.day;
@@ -1719,7 +1721,7 @@ function renderBills(){
     const crcBadge=isCRC?'<span style="font-size:8px;font-weight:700;padding:2px 6px;border-radius:20px;background:#e8f5e9;color:#1a4a2a;border:1px solid #a5d6a7;">\u20a1 CRC</span>':'';
     return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:'+(amtPaid?'var(--surface2)':isOverdue?'#fff8f8':'#fff')+';border:1px solid '+(isOverdue&&!amtPaid?'#fca5a5':'var(--border)')+';border-top:none;opacity:'+(amtPaid?'.8':'1')+';">'+
       '<div style="flex:1;min-width:0;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+(b.btype!=='custom'?'<button onclick="event.stopPropagation();openFreqEdit(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',\''+(b.btype||'')+'\')" title="Edit frequency (monthly / non-regular)" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.55;">⚙</button>':'')+(b.btype!=='custom'?'<button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',false)" title="Delete bill" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.45;color:#dc2626;">✕</button>':'')+'</div>'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'+statusBadge+'<span style="font-size:13px;font-weight:'+(amtPaid?'400':'600')+';color:'+(amtPaid?'var(--text3)':'var(--text)')+';text-decoration:'+(amtPaid?'line-through':'none')+';white-space:normal;word-break:break-word;line-height:1.35;">'+b.short+'</span>'+'<button onclick="event.stopPropagation();showBillNote(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\')" title="'+(getBillNote(b.key)?'View / edit note':'Add a note')+'" style="background:'+(getBillNote(b.key)?'#fffbeb':'transparent')+';border:1px solid '+(getBillNote(b.key)?'#fcd34d':'var(--border)')+';border-radius:6px;cursor:pointer;font-size:12px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:'+(getBillNote(b.key)?'1':'.55')+';">📝</button>'+'<button onclick="event.stopPropagation();openFreqEdit(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',\''+(b.btype||'')+'\')" title="Change monthly / non-regular" style="background:transparent;border:1px solid var(--accent);border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;flex-shrink:0;line-height:1.3;color:var(--accent);">✎ Edit</button>'+(b.btype!=='custom'?'<button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',false)" title="Delete bill" style="background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;padding:1px 6px;flex-shrink:0;line-height:1.2;opacity:.45;color:#dc2626;">✕</button>':'')+'</div>'+
       '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'+propBadge+autoBadge+cardBadge+dayEditWidget(b)+crcBadge+'</div>'+
       '</div>'+
       '<div style="text-align:right;flex-shrink:0;">'+amtDisplay+actionBtn+(b.btype==='custom'?'<br><button onclick="event.stopPropagation();promptDeleteBill(\''+b.key+'\',\''+(b.short.replace(/\x27/g,"")).replace(/"/g,"")+'\',true)" style="font-size:8px;font-weight:700;padding:3px 8px;border-radius:4px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer;margin-top:4px;">✕ delete</button>':'')+'</div>'+
