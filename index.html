@@ -387,7 +387,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v6</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v7</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -505,6 +505,12 @@ window.clearBillAmount = function(key,month,year){
 };
 let editingTaskId=null,editingExpId=null;
 let expCatFilter='',expMonthFilter='';
+// Setters exposed to global scope so inline onchange handlers (which run in
+// global scope) can update these module-scoped filters. Assigning directly from
+// an inline handler silently fails because the handler can't see module vars.
+window.setExpCat=function(v){expCatFilter=v;renderExpenses();};
+window.setExpMonth=function(v){expMonthFilter=v;renderExpenses();};
+window.clearExpFilters=function(){expCatFilter='';expMonthFilter='';renderExpenses();};
 
 const CAT_LBL={vehicles:'Vehicles / logistics',nila:'Nación Nila',florida:'Florida move',property:'Property',legal:'Legal / divorce',personal:'Personal'};
 const EXP_CATS=['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
@@ -521,7 +527,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v6';
+const APP_VERSION='v7';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -966,11 +972,11 @@ function renderExpenses(){
       </div>
     </div>
     <div class="filter-bar">
-      <select class="filter-sel" onchange="expCatFilter=this.value;renderExpenses()">
+      <select class="filter-sel" onchange="setExpCat(this.value)">
         ${catOpts}
       </select>
       <span class="filter-lbl">Month</span>
-      <input type="month" class="filter-sel" value="${expMonthFilter}" onchange="expMonthFilter=this.value;renderExpenses()">
+      <input type="month" class="filter-sel" value="${expMonthFilter}" onchange="setExpMonth(this.value)">
       ${(expCatFilter||expMonthFilter)?'<button class="filter-clear" onclick="expCatFilter=\'\';expMonthFilter=\'\';renderExpenses()">✕ Clear</button>':''}
     </div>
     <div id="exp-add-form" class="exp-form" style="display:none;">
