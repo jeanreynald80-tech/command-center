@@ -244,6 +244,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="field"><label class="field-lbl">Task</label><textarea class="field-inp" id="tm-text" rows="3" style="resize:none;"></textarea></div>
       <div class="field"><label class="field-lbl">Category</label>
         <select class="field-inp" id="tm-cat">
+          <option value="passport">Passport Update</option>
           <option value="vehicles">Vehicles / logistics</option><option value="nila">Nación Nila</option>
           <option value="florida">Florida move</option><option value="property">Property</option>
           <option value="legal">Legal / divorce</option><option value="personal">Personal</option>
@@ -269,6 +270,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="field"><label class="field-lbl">Description</label><textarea class="field-inp" id="at-text" rows="3" style="resize:none;" placeholder="What needs to be done?"></textarea></div>
       <div class="field"><label class="field-lbl">Category</label>
         <select class="field-inp" id="at-cat">
+          <option value="passport">Passport Update</option>
           <option value="personal">Personal</option><option value="vehicles">Vehicles / logistics</option>
           <option value="nila">Nación Nila</option><option value="florida">Florida move</option>
           <option value="property">Property</option><option value="legal">Legal / divorce</option>
@@ -432,7 +434,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v12</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v14</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -557,7 +559,7 @@ window.setExpCat=function(v){expCatFilter=v;renderExpenses();};
 window.setExpMonth=function(v){expMonthFilter=v;renderExpenses();};
 window.clearExpFilters=function(){expCatFilter='';expMonthFilter='';renderExpenses();};
 
-const CAT_LBL={vehicles:'Vehicles / logistics',nila:'Nación Nila',florida:'Florida move',property:'Property',legal:'Legal / divorce',personal:'Personal'};
+const CAT_LBL={vehicles:'Vehicles / logistics',nila:'Nación Nila',florida:'Florida move',property:'Property',legal:'Legal / divorce',personal:'Personal',passport:'Passport Update'};
 const EXP_CATS=['Furniture','Electronics','Food & Grocery','Transportation','Home Supplies','Clothing','Gas','Hotel/Lodging','Other'];
 const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -572,7 +574,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v12';
+const APP_VERSION='v14';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -635,6 +637,17 @@ async function initApp(){
         localStorage.setItem('overridesMigrated','1');
       }
     }catch(e){ console.warn('override migration skipped',e); }
+    // ONE-TIME: import the passport-update task batch (runs once per database).
+    try{
+      if(firebaseReady && !localStorage.getItem('passportTasksImported')){
+        const _pt=["Nación Nila — Update personería jurídica / corporate records if old passport number appears", "Nación Nila — Check with attorney/notary what specifically needs updating in the personería", "Nación Nila — Update the corporate/legal book(s) if required", "Nación Nila — Update insurance", "Nación Nila — Update CCSS / La Caja if passport is the ID on file", "Nación Nila — Update Hacienda / Tributación if passport number is on record", "Ciudad Colón — Update home/property insurance", "Ciudad Colón — Update car insurance", "Ciudad Colón — Update property-tax records if passport is used as ID", "Ciudad Colón — Scotiabank: update passport information", "Migración — Update residency expediente with new passport", "Migración — Bring new passport + old cancelled passport + copy of bio page", "Migración — Submit written request to incorporate new passport into immigration file", "Migración — Keep stamped proof that Migración received the update", "US Airlines — Update Delta Air Lines account", "US Airlines — Update United Airlines account", "US Airlines — Update American Airlines account", "US Airlines — Check upcoming reservations, replace old passport number", "TSA — Update Known Traveler information", "TSA — Update Global Entry, if applicable", "TSA — Update any other trusted-traveler profile using old passport", "US Insurance — Identify which insurer has passport info (not Travelers) and update", "US Legal — Check if U.S. attorney needs new passport for ongoing matters", "US Financial — Update any bank/brokerage/retirement account using passport as ID"];
+        const _pd=["Ciudad Colón — Banco Nacional: passport information updated"];
+        const existing=(await getDocs(tasksCol)).docs.map(d=>d.data().text||'');
+        for(const t of _pt){ if(!existing.includes(t)){ await addDoc(tasksCol,{text:t,cat:'passport',tag:'urgent',date:'',done:false,createdAt:Date.now()+Math.random()}); } }
+        for(const t of _pd){ if(!existing.includes(t)){ await addDoc(tasksCol,{text:t,cat:'passport',tag:'urgent',date:'',done:true,createdAt:Date.now()+Math.random()}); } }
+        localStorage.setItem('passportTasksImported','1');
+      }
+    }catch(e){ console.warn('passport task import skipped',e); }
     const[tSnap,eSnap,lSnap]=await Promise.all([getDocs(tasksCol),getDocs(expCol),getDocs(litCol)]);
     if(tSnap.empty){for(const t of TASK_SEED)await addDoc(tasksCol,t);}
     if(lSnap.empty){for(const e of LIT_SEED)await addDoc(litCol,e);}
@@ -923,7 +936,7 @@ function renderSidebar(){
   if(activeTab==='tasks'){
     const cats=[
       {id:'all',l:'All'},{id:'bydate',l:'By Date'},{id:'urgent',l:'🔴 Urgent'},
-      {id:'vehicles',l:'Vehicles'},{id:'nila',l:'Nación Nila'},{id:'florida',l:'Florida'},
+      {id:'passport',l:'🛂 Passport'},{id:'vehicles',l:'Vehicles'},{id:'nila',l:'Nación Nila'},{id:'florida',l:'Florida'},
       {id:'property',l:'Property'},{id:'legal',l:'Legal'},{id:'personal',l:'Personal'}
     ];
     subNav.style.display='flex';
