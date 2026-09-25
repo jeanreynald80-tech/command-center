@@ -434,7 +434,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v14</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v15</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -574,7 +574,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v14';
+const APP_VERSION='v15';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -1808,7 +1808,7 @@ function renderBills(){
       if(hasAmt){
         var amtStr=isCRC?('\u20a1'+Math.round(parseFloat(b.amount)).toLocaleString()):('$'+parseFloat(b.amount).toFixed(2));
         amtDisplay='<div style="font-size:18px;font-weight:700;color:'+(paidNow?'var(--green)':'var(--text)')+';">'+amtStr+'</div>';
-        actionBtn='<button onclick="event.stopPropagation();toggleCustomPaid(\''+b.key+'\','+(b.forMonth||billsMonth)+','+year+','+b.amount+',\''+(b.short.replace(/'/g,""))+'\')" style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid '+(paidNow?'var(--border)':'var(--green)')+';background:'+(paidNow?'#fff':'var(--green)')+';color:'+(paidNow?'var(--text3)':'#fff')+';cursor:pointer;white-space:nowrap;margin-top:4px;">'+(paidNow?'\u2713 Paid \u00b7 Undo':'Mark Paid')+'</button>';
+        actionBtn='<button onclick="event.stopPropagation();toggleCustomPaid(\''+b.key+'\','+(b.forMonth||billsMonth)+','+year+','+b.amount+',\''+(b.short.replace(/'/g,""))+'\')" style="font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid '+(paidNow?'var(--border)':'var(--green)')+';background:'+(paidNow?'#fff':'var(--green)')+';color:'+(paidNow?'var(--text3)':'#fff')+';cursor:pointer;white-space:nowrap;margin-top:4px;">'+(paidNow?'\u2713 Paid \u00b7 Undo':'Mark Paid')+'</button>'+'<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+(b.forMonth||billsMonth)+','+year+','+isCRC+')" title="Change this month\'s amount" style="font-size:8px;font-weight:700;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;margin-top:4px;margin-left:4px;">\u270e edit amount</button>';
       }else{
         amtDisplay='';
         actionBtn='<button onclick="event.stopPropagation();enterBillAmount(\''+b.key+'\','+billsMonth+','+year+','+isCRC+')" style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--navy);color:#fff;cursor:pointer;white-space:nowrap;">+ Enter Amount</button>';
