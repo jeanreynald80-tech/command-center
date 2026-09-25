@@ -385,7 +385,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
       <div class="field"><label class="field-lbl">Currency</label><select class="field-inp" id="ab-currency"><option value="USD">USD ($)</option><option value="CRC">CRC (₡)</option></select></div>
       <div class="field"><label class="field-lbl">Payment Method</label><input class="field-inp" id="ab-card" type="text" placeholder="e.g. Truist, Amex"></div>
       <div class="field"><label class="field-lbl">Payment Type</label><select class="field-inp" id="ab-auto"><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
-      <div class="field"><label class="field-lbl">Frequency</label><select class="field-inp" id="ab-freq" onchange="toggleBillFreq()"><option value="monthly">Monthly</option><option value="annual">Annual (specific month)</option></select></div>
+      <div class="field"><label class="field-lbl">Frequency</label><select class="field-inp" id="ab-freq" onchange="toggleBillFreq()"><option value="monthly">Monthly</option><option value="annual">Annual (specific month)</option><option value="custom-months">Custom months (pick which months)</option></select></div>
       <div class="field" id="ab-month-row" style="display:none;"><label class="field-lbl">Month Due</label>
         <select class="field-inp" id="ab-month">
           <option value="1">January</option><option value="2">February</option><option value="3">March</option>
@@ -394,6 +394,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
           <option value="10">October</option><option value="11">November</option><option value="12">December</option>
         </select>
       </div>
+      <div class="field" id="ab-custommonths-row" style="display:none;"><label class="field-lbl">Which months is it due?</label><div style="display:flex;flex-wrap:wrap;gap:4px;"><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="1"> Jan</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="2"> Feb</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="3"> Mar</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="4"> Apr</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="5"> May</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="6"> Jun</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="7"> Jul</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="8"> Aug</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="9"> Sep</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="10"> Oct</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="11"> Nov</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;"><input type="checkbox" class="ab-cm" value="12"> Dec</label></div><div style="font-size:11px;color:var(--text3);margin-top:6px;">Tick every month this bill is due (e.g. Jan, Mar, Jun, Sep, Dec).</div></div>
       <div class="modal-actions">
         <button class="btn-cancel" onclick="closeAddBillModal()">Cancel</button>
         <button class="btn-save" onclick="submitAddBill()">Add Bill</button>
@@ -434,7 +435,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sur
     <div class="app-brand">
       <button class="hamburger" onclick="openDrawer()">☰</button>
       <div class="app-brand-icon">⚡</div>
-      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v15</span>
+      <span class="app-title">Command Center</span><span style="font-size:10px;color:#93c5fd;margin-left:8px;font-weight:600;">v16</span>
     </div>
     <div class="top-right">
       <span class="top-date" id="top-date"></span>
@@ -574,7 +575,7 @@ window.addEventListener('DOMContentLoaded',()=>{
 // ── AUTO RE-SYNC & VERSION CHECK (keeps all devices consistent) ──────────────
 // The app version. Bump this string whenever code changes; devices running an
 // older cached copy will detect the mismatch and hard-reload to the newest code.
-const APP_VERSION='v15';
+const APP_VERSION='v16';
 (function(){
   // 1) When the tab becomes visible again (e.g. phone unlocked, app refocused),
   //    re-render so the latest live Firebase data is shown immediately.
@@ -794,13 +795,21 @@ window.openAddBillModal=function(){
   document.getElementById('ab-month').value='1';
   document.getElementById('ab-currency').value='USD';
   document.getElementById('ab-month-row').style.display='none';
+  var _cmr=document.getElementById('ab-custommonths-row');if(_cmr)_cmr.style.display='none';
+  document.querySelectorAll('.ab-cm').forEach(function(x){x.checked=false;});
   setTimeout(()=>document.getElementById('ab-name').focus(),100);
 };
 window.closeAddBillModal=function(){document.getElementById('add-bill-modal').classList.remove('open');};
-window.toggleBillFreq=function(){var f=document.getElementById('ab-freq').value;document.getElementById('ab-month-row').style.display=f==='monthly'?'none':'block';};
+window.toggleBillFreq=function(){
+  var f=document.getElementById('ab-freq').value;
+  document.getElementById('ab-month-row').style.display=(f==='annual')?'block':'none';
+  var cm=document.getElementById('ab-custommonths-row');
+  if(cm)cm.style.display=(f==='custom-months')?'block':'none';
+};
 window.submitAddBill=async function(){
   var name=document.getElementById('ab-name').value.trim();
   if(!name){alert('Please enter a bill name.');return;}
+  if(document.getElementById('ab-freq').value==='custom-months' && document.querySelectorAll('.ab-cm:checked').length===0){alert('Please tick at least one month for this bill.');return;}
   var bill={
     short:name,
     property:document.getElementById('ab-property').value,
@@ -810,6 +819,7 @@ window.submitAddBill=async function(){
     auto:document.getElementById('ab-auto').value==='auto',
     freq:document.getElementById('ab-freq').value,
     month:parseInt(document.getElementById('ab-month').value)||1,
+    customMonths:(document.getElementById('ab-freq').value==='custom-months')?Array.from(document.querySelectorAll('.ab-cm:checked')).map(function(x){return parseInt(x.value);}):null,
     currency:document.getElementById('ab-currency').value,
     btype:'custom',
     createdAt:Date.now(),
@@ -987,6 +997,7 @@ function monthBillStats(month){
     const sM=b.startMonth||1, sY=b.startYear||year;
     const beforeStart=(year<sY)||(year===sY&&month<sM);
     const cf=billFreqOverrides[b.id]||b.freq;
+    if(cf==='custom-months'){ if(!(Array.isArray(b.customMonths)&&b.customMonths.indexOf(month)!==-1)) return null; }
     if(cf==='annual'){var _tgt=billFreqAnnualMonth[b.id]||b.month||1; if(_tgt!==month) return null;}
     const ov=billAmountOverrides[billAmountKey(b.id,month,year)];
     return {...b,key:b.id,btype:'custom',forMonth:month,preStart:beforeStart,
@@ -1510,8 +1521,8 @@ function renderBills(){
   function effectiveMonthly(b){
     var ov=billFreqOverrides[b.key];
     if(ov==='monthly')return true;
-    if(ov==='annual')return false;
-    if(b.btype==='custom')return (b.freq||'monthly')==='monthly';
+    if(ov==='annual'||ov==='custom-months')return false;
+    if(b.btype==='custom'){var cf=b.freq||'monthly'; return cf==='monthly';}
     return b.btype==='regular';
   }
   function getBillsForMonth(month,skipStatus){
@@ -1549,6 +1560,7 @@ function renderBills(){
     // custom bills from Firebase
     var custom=customBills.filter(function(b){
       var f=billFreqOverrides[b.id]||b.freq;
+      if(f==='custom-months'){ return Array.isArray(b.customMonths) && b.customMonths.indexOf(month)!==-1; }
       if(f==='monthly')return true;
       if(f==='annual'){var tgt=billFreqAnnualMonth[b.id]||b.month||1; return tgt===month;}
       return true;
